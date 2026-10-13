@@ -657,6 +657,30 @@ edge:    'rgba(255,255,255,0.22)'
 
 function sc(H) { return Math.max(0.5, Math.min(1.45, H / 720)); }
 
+var REG = { on: false, items: [], boxes: [], bars: [] };
+function regReset() { REG.items.length = 0; REG.boxes.length = 0; REG.bars.length = 0; }
+function regAdd(ctx, s, x, y, o, kind) {
+if (!REG.on) return;
+var size = o.size || 20;
+var w = ctx.measureText(s).width;
+var h = size;
+var align = o.align || 'left', base = o.base || 'middle';
+var x0;
+if (align === 'center') x0 = x - w / 2;
+else if (align === 'right') x0 = x - w;
+else x0 = x;
+var y0;
+if (base === 'top') y0 = y;
+else if (base === 'bottom') y0 = y - h;
+else y0 = y - h / 2;
+REG.items.push({
+text: s, kind: kind || 'T',
+x: x0, y: y0, w: w, h: h,
+cx: x0 + w / 2, cy: y0 + h / 2,
+size: size
+});
+}
+
 function T(ctx, s, x, y, o) {
 o = o || {};
 ctx.save();
@@ -665,6 +689,7 @@ ctx.fillStyle = o.color || K.text;
 ctx.textAlign = o.align || 'left';
 ctx.textBaseline = o.base || 'middle';
 if (o.glow) { ctx.shadowColor = o.color || K.text; ctx.shadowBlur = 8; }
+regAdd(ctx, s, x, y, { size: o.size || 20, align: o.align, base: o.base }, 'T');
 ctx.fillText(s, x, y);
 ctx.restore();
 }
@@ -676,6 +701,7 @@ ctx.font = 'italic ' + (o.w || 400) + ' ' + (o.size || 26) + 'px ' + SERIF;
 ctx.fillStyle = o.color || K.text;
 ctx.textAlign = o.align || 'left';
 ctx.textBaseline = o.base || 'middle';
+regAdd(ctx, s, x, y, { size: o.size || 26, align: o.align, base: o.base }, 'M');
 ctx.fillText(s, x, y);
 ctx.restore();
 }
@@ -794,6 +820,7 @@ function readoutBox(ctx, x, y, w, rows, o) {
 o = o || {};
 var k = o.k || 1, lh = (o.lh || 23) * k, pad = 10 * k;
 var h = rows.length * lh + pad * 2 - 5 * k;
+if (REG.on) REG.boxes.push({ x: x, y: y, w: w, h: h, kind: 'readoutBox' });
 ctx.save();
 ctx.fillStyle = 'rgba(10,10,10,0.74)';
 ctx.fillRect(x, y, w, h);
@@ -851,11 +878,21 @@ var maxW = o.maxW || (ctx.canvas.width / (o.dpr || 1) - x - 26 * k);
 var fs = (o.size || 24) * k;
 ctx.save();
 var cy = y;
+
+var LABW = 0;
+for (var m0 = 0; m0 < rows.length; m0++) {
+if (rows[m0].label) {
+ctx.font = '400 ' + fs + 'px ' + FONT;
+var lw = ctx.measureText('[' + rows[m0].label + ']').width + 14 * k;
+if (lw > LABW) LABW = lw;
+}
+}
+if (LABW < 60 * k) LABW = 60 * k;
 for (var i = 0; i < rows.length; i++) {
-var r = rows[i], xx = x + 78 * k;
+var r = rows[i], xx = x + LABW;
 if (r.label) {
 T(ctx, '[' + r.label + ']', x, cy, { size: fs, color: o.labelColor || K.dim });
-var lines = wrap(ctx, r.text || '', fs, maxW - 78 * k, '400 ' + fs + 'px ' + FONT);
+var lines = wrap(ctx, r.text || '', fs, maxW - LABW, '400 ' + fs + 'px ' + FONT);
 for (var n = 0; n < lines.length; n++) {
 T(ctx, lines[n], xx, cy + n * lh * 0.86, { size: fs, color: r.color || K.text });
 }
@@ -873,7 +910,7 @@ ctx.restore();
 M(ctx, r.formula, xx, cy, { size: fsz, color: r.color || K.text });
 cy += lh;
 } else if (r.note) {
-var ln2 = wrap(ctx, r.note, fs, maxW - 78 * k, '400 ' + fs + 'px ' + FONT);
+var ln2 = wrap(ctx, r.note, fs, maxW - LABW, '400 ' + fs + 'px ' + FONT);
 for (var m = 0; m < ln2.length; m++) {
 T(ctx, ln2[m], xx, cy + m * lh * 0.86, { size: fs, color: r.color || K.dim });
 }
@@ -1049,6 +1086,7 @@ plate: plate, charge: charge, chargeFlow: chargeFlow, chargeColumn: chargeColumn
 pathAt: pathAt, front: front, trailDot: trailDot, burstRES: burstRES, fade: fade,
 neutral: neutral, pairRing: pairRing, readoutBox: readoutBox,
 conceptCard: conceptCard, legendRES: legendRES, captionRES: captionRES, stepTitle: stepTitle,
+_reg: REG, _regReset: regReset,
 at: at
 };
 })(typeof window !== 'undefined' ? window : globalThis);
@@ -1081,7 +1119,10 @@ var k = Z.sc(H);
 if (o.rings) o.rings.forEach(function (r) { tapRing(ctx, r[0], r[1], r[2], r[3], { k: k }); });
 if (o.cn || S.caption) Z.captionRES(ctx, W, H, o.cn || S.caption, o.en || S.captionEn || '', { k: k, bottom: 52 });
 if (o.legend) Z.legendRES(ctx, L.legendX, L.legendY, { k: k, items: o.legend });
-if (o.card && o.card.length && W >= 720) Z.conceptCard(ctx, L.cx, L.cy, o.card, { k: k });
+if (o.card && o.card.length && W >= 720) {
+if (Z._reg && Z._reg.on) Z._reg.boxes.push({ x: L.cx, y: L.cy - 30 * k, w: W - L.cx - 10 * k, h: 300 * k, kind: 'card' });
+Z.conceptCard(ctx, L.cx, L.cy, o.card, { k: k });
+}
 }
 function tapRing(ctx, x, y, w, h, o) {
 o = o || {};
@@ -1122,6 +1163,7 @@ Z.T(ctx, o.xlab || 'U / V', x0 + w, y0 + 22 * k, { size: 18 * k, align: 'right',
 Z.T(ctx, o.ylab || 'I / A', x0 - 12 * k, y0 - h, { size: 18 * k, align: 'right', color: K.dim });
 Z.T(ctx, 'O', x0 - 12 * k, y0 + 14 * k, { size: 17 * k, align: 'right', color: K.dim });
 ctx.restore();
+if (Z._reg && Z._reg.on) Z._reg.bars.push({ x: x0, y: y0 - h, w: w, h: h, kind: 'axes' });
 return { x0: x0, y0: y0, w: w, h: h,
 px: function (u) { return x0 + w * u; },
 py: function (v) { return y0 - h * v; } };
@@ -1170,6 +1212,7 @@ ctx.restore();
 function bar(ctx, x, y, w, h, o) {
 o = o || {};
 var k = o.k || 1;
+if (Z._reg && Z._reg.on) Z._reg.bars.push({ x: x, y: y, w: w, h: h, kind: 'bar' });
 ctx.save();
 if (o.fill) { ctx.fillStyle = o.fill; ctx.globalAlpha = o.alpha == null ? 0.3 : o.alpha; ctx.fillRect(x, y, w, h); }
 ctx.globalAlpha = 1;
@@ -1196,7 +1239,7 @@ var yMid = (y0 + y1) / 2;
 D(ctx, S.r0, function () {
 Z.wirePath(ctx, [[x0, y0], [x1, y0], [x1, y1], [x0, y1], [x0, y0]], { w: 3 * k });
 Z.battery(ctx, (x0 + x1) / 2, y1, 110 * k, 36 * k, { k: k, horiz: true });
-Z.T(ctx, '电源', (x0 + x1) / 2, y1 + 42 * k, { size: 18 * k, align: 'center', color: K.dim });
+Z.T(ctx, '电源', (x0 + x1) / 2, y1 + 58 * k, { size: 18 * k, align: 'center', color: K.dim });
 });
 
 var segW = (x1 - x0) * clamp01(S.demoL / 100);
@@ -1233,7 +1276,7 @@ Z.T(ctx, '负载', lx, ly + 62 * k,
 });
 
 D(ctx, S.r4, function () {
-Z.readoutBox(ctx, mx(L, 0.02), my(L, 0.78), (L.mx1 - L.mx0) * 0.52, [
+Z.readoutBox(ctx, mx(L, 0.02), my(L, 0.62), (L.mx1 - L.mx0) * 0.42, [
 ['导线电阻 R = ρL/S', P.fmt(S.R_demo, 4) + ' Ω', K.gold],
 ['回路电流 I', P.fmt(S.I_demo, 3) + ' A', K.neg],
 ['导线上的损耗占比', P.fmt(S.lossFrac * 100, 1) + ' %', K.gold]
@@ -1312,7 +1355,7 @@ Z.T(ctx, P.fmt(U / I, 2) + ' Ω', tx + cw * 3.5, ty + rh * (1.5 + n), { size: 16
 });
 
 D(ctx, S.r4, function () {
-Z.readoutBox(ctx, mx(L, 0.02), my(L, 0.50), (L.mx1 - L.mx0) * 0.34, [
+Z.readoutBox(ctx, mx(L, 0.64), my(L, 0.02), (L.mx1 - L.mx0) * 0.28, [
 ['电源电压 U', P.fmt(S.srcU, 2) + ' V', K.neg],
 ['被测导体 R', P.fmt(S.srcR, 1) + ' Ω', K.gold],
 ['电流 I = U/R', P.fmt(S.I_measure, 3) + ' A', K.neg],
@@ -1339,7 +1382,7 @@ function Y(U) { return U / Umax; }
 
 D(ctx, S.r0, function () {
 plotLine(ctx, A, [[X(0), Y(0)], [X(Imax), Y(S.dR * Imax)]], { color: K.text, w: 2.8, k: k });
-Z.T(ctx, 'U-I 图像：过原点的直线', mx(L, 0.20), my(L, 0.14), { size: 19 * k, color: K.text });
+Z.T(ctx, 'U-I 图像：过原点的直线', mx(L, 0.20), my(L, 0.04), { size: 19 * k, color: K.text });
 });
 
 var I = S.dU / S.dR;
@@ -1351,7 +1394,7 @@ Z.T(ctx, '(' + P.fmt(I, 2) + ' A, ' + P.fmt(S.dU, 1) + ' V)', A.px(X(I)) + 12 * 
 });
 
 D(ctx, S.r3, function () {
-Z.readoutBox(ctx, mx(L, 0.02), my(L, 0.06), (L.mx1 - L.mx0) * 0.34, [
+Z.readoutBox(ctx, mx(L, 0.60), my(L, 0.06), (L.mx1 - L.mx0) * 0.30, [
 ['U', P.fmt(S.dU, 2) + ' V'],
 ['I', P.fmt(I, 3) + ' A'],
 ['U / I', P.fmt(S.dU / I, 2) + ' Ω', K.gold]
@@ -1391,7 +1434,7 @@ Z.T(ctx, '同一个 U', A.x0 - 8 * k, A.py(Y(S.cmpU)), { size: 16 * k, align: 'r
 });
 
 D(ctx, S.r3, function () {
-Z.readoutBox(ctx, mx(L, 0.02), my(L, 0.06), (L.mx1 - L.mx0) * 0.36, [
+Z.readoutBox(ctx, mx(L, 0.60), my(L, 0.06), (L.mx1 - L.mx0) * 0.30, [
 ['U 相同', P.fmt(S.cmpU, 2) + ' V'],
 ['R_A / R_B', P.fmt(S.RA / S.RB, 2), K.gold],
 ['I_A / I_B', P.fmt(IA / IB, 2), K.neg]
@@ -1423,7 +1466,7 @@ guide(ctx, A, X(I), Y(S.errU), { k: k });
 });
 
 D(ctx, S.r2, function () {
-Z.readoutBox(ctx, mx(L, 0.02), my(L, 0.06), (L.mx1 - L.mx0) * 0.40, [
+Z.readoutBox(ctx, mx(L, 0.62), my(L, 0.06), (L.mx1 - L.mx0) * 0.30, [
 ['工作点 U', P.fmt(S.errU, 2) + ' V', K.neg],
 ['电流 I = U/R', P.fmt(S.I_err, 3) + ' A', K.neg],
 ['R = U/I', P.fmt(S.ratio_err, 2) + ' Ω', K.gold],
@@ -1513,34 +1556,41 @@ Z.readoutBox(ctx, mx(L, 0.02), my(L, 0.80), (L.mx1 - L.mx0) * 0.52, [
 
 function barScene(ctx, W, H, S, cfg) {
 var k = Z.sc(H), L = layout(W, H, {});
+var narrow = W < 700;
 shell(ctx, W, H, S, L, { card: cfg.card });
 var bx = mx(L, 0.14), by = my(L, 0.84), maxH = (L.my1 - L.my0) * 0.58;
 var bw = (L.mx1 - L.mx0) * 0.16, gap = (L.mx1 - L.mx0) * 0.075;
 var vals = cfg.vals(S), labels = cfg.labels, maxV = Math.max.apply(null, vals);
+var nBars = vals.length;
 
 D(ctx, S.r0, function () {
 
 ctx.save();
 ctx.strokeStyle = 'rgba(255,255,255,0.35)'; ctx.lineWidth = 1.4 * k;
-ctx.beginPath(); ctx.moveTo(bx - 20 * k, by); ctx.lineTo(bx + bw * 3 + gap * 3, by); ctx.stroke();
+ctx.beginPath(); ctx.moveTo(bx - 20 * k, by); ctx.lineTo(bx + bw * nBars + gap * nBars, by); ctx.stroke();
 ctx.restore();
-for (var i = 0; i < 3; i++) {
+for (var i = 0; i < nBars; i++) {
 var h = maxH * (vals[i] / maxV);
 var hi = cfg.hi === i;
 bar(ctx, bx + i * (bw + gap), by - h, bw, h,
 { color: hi ? K.gold : K.text, fill: hi ? K.gold : K.text, alpha: hi ? 0.32 : 0.12, k: k });
 Z.T(ctx, labels[i], bx + i * (bw + gap) + bw / 2, by + 22 * k, { size: 18 * k, align: 'center', color: hi ? K.gold : K.dim });
+
+var dupBelow = (i > 0 && Math.abs(vals[i] - vals[i - 1]) < 1e-12);
 Z.T(ctx, (cfg.fmt ? cfg.fmt(vals[i]) : P.fmt(vals[i], cfg.dp)) + (cfg.unit || ''),
-bx + i * (bw + gap) + bw / 2, by - h - 18 * k,
+bx + i * (bw + gap) + bw / 2, by - h - (dupBelow ? 44 : 18) * k,
 { size: 17 * k, align: 'center', color: hi ? K.gold : K.text });
 }
 });
 
 D(ctx, S.r2, function () {
-Z.readoutBox(ctx, mx(L, 0.02), my(L, 0.06), (L.mx1 - L.mx0) * 0.46, cfg.rows(S), { k: k });
+
+var ry = narrow ? (by + 76 * k) : my(L, 0.70);
+var rw = narrow ? (L.mx1 - L.mx0) * 0.88 : (L.mx1 - L.mx0) * 0.46;
+Z.readoutBox(ctx, mx(L, 0.02), ry, rw, cfg.rows(S), { k: k });
 });
 
-if (cfg.params) {
+if (cfg.params && !narrow) {
 D(ctx, S.r3, function () {
 var rowsP = cfg.params(S);
 var pbx = mx(L, 0.02), pby = by + 44 * k;
@@ -1609,25 +1659,23 @@ card: [
 { label: '结果', text: '电阻因材料不同而不同 ⇒ 引出"电阻率"。' },
 { formula: 'ρ 表征材料特性' }
 ],
-vals: function () { return [rA, rD, rD]; },
-labels: ['a：' + nA, 'd：' + nD, ''],
+vals: function () { return [rA, rD]; },
+labels: ['a：' + nA, 'd：' + nD],
 hi: 1, dp: 2, unit: '',
 fmt: function (v) { return P.sci(v, 1) + ' Ω·m'; },
 rows: function () {
-return [['a 材料 ρ', P.sci(rA, 2) + ' Ω·m'],
-['d 材料 ρ', P.sci(rD, 2) + ' Ω·m', K.gold],
-['R_d / R_a', P.fmt(rD / rA, 2) + ' ×', K.gold]];
+
+return [['R_d / R_a', P.fmt(rD / rA, 2) + ' ×', K.gold]];
 },
 params: function () {
-return [['a 材料', nA],
-['a 的 ρ', P.sci(rA, 2) + ' Ω·m', K.gold],
-['d 材料', nD],
-['d 的 ρ', P.sci(rD, 2) + ' Ω·m', K.gold],
-['长度 l、面积 S', '两者相同']];
+
+return [['换的因素', '只有材料'],
+['长度 l', '两者相同'],
+['横截面积 S', '两者相同']];
 }
 });
 D(ctx, S.r1, function () {
-Z.T(ctx, '两种材料的电阻率（20 ℃ 表值）', mx(L, 0.14), my(L, 0.12), { size: 18 * k, color: K.dim });
+Z.T(ctx, '两种材料的电阻率（20 ℃ 表值）', mx(L, 0.14), my(L, 0.03), { size: 18 * k, color: K.dim });
 });
 }
 
@@ -1692,12 +1740,12 @@ bar(ctx, x + 90 * k, yy - 9 * k, Math.max(3 * k, barW), 18 * k,
 Z.T(ctx, P.sci(rho, 1), x + 90 * k + Math.max(3 * k, barW) + 12 * k, yy,
 { size: 16 * k, color: hi ? K.gold : K.dim });
 }
-Z.T(ctx, '（条形长度按 ρ 的平方根缩放，便于同屏比较）', x, y + P.RHO_ORDER.length * rh + 12 * k,
+Z.T(ctx, '（条形长度按 ρ 的平方根缩放）', x, y - 22 * k,
 { size: 15 * k, color: 'rgba(255,255,255,0.35)' });
 });
 
 D(ctx, S.r2, function () {
-Z.readoutBox(ctx, mx(L, 0.02), my(L, 0.72), (L.mx1 - L.mx0) * 0.62, [
+Z.readoutBox(ctx, mx(L, 0.62), my(L, 0.06), (L.mx1 - L.mx0) * 0.30, [
 ['当前材料', P.RHO_ORDER[S.tblMat], K.gold],
 ['L / S', P.fmt(S.tblL, 1) + ' m / ' + P.fmt(S.tblS, 1) + ' mm²'],
 ['R = ρL/S', P.fmt(S.R_tbl, 4) + ' Ω', K.gold]
@@ -1803,7 +1851,7 @@ dot(ctx, A, X(T), Y(r), { color: isSC ? K.gold : K.text, r: 5.6, k: k });
 });
 
 D(ctx, S.r3, function () {
-Z.readoutBox(ctx, mx(L, 0.02), my(L, 0.06), (L.mx1 - L.mx0) * 0.40, [
+Z.readoutBox(ctx, mx(L, 0.62), my(L, 0.06), (L.mx1 - L.mx0) * 0.30, [
 ['温度 T', P.fmt(T, 0) + ' K'],
 ['状态', isSC ? '超导态' : '正常态', isSC ? K.gold : K.text],
 ['电阻率', isSC ? '0' : '> 0', isSC ? K.gold : K.text]
@@ -1837,7 +1885,7 @@ dot(ctx, A, X(S.linU), Y(I), { color: K.gold, r: 6, k: k });
 Z.T(ctx, 'R = ' + P.fmt(S.linR, 1) + ' Ω', mx(L, 0.05), my(L, 0.10), { size: 19 * k, color: K.gold });
 });
 D(ctx, S.r2, function () {
-Z.readoutBox(ctx, mx(L, 0.02), my(L, 0.72), (L.mx1 - L.mx0) * 0.42, [
+Z.readoutBox(ctx, mx(L, 0.62), my(L, 0.06), (L.mx1 - L.mx0) * 0.30, [
 ['U', P.fmt(S.linU, 2) + ' V'],
 ['I', P.fmt(I, 3) + ' A', K.neg],
 ['R = U/I', P.fmt(S.linR, 2) + ' Ω', K.gold]
@@ -1847,6 +1895,7 @@ Z.readoutBox(ctx, mx(L, 0.02), my(L, 0.72), (L.mx1 - L.mx0) * 0.42, [
 
 function scNonlinear(ctx, W, H, S) {
 var k = Z.sc(H), L = layout(W, H, {});
+var narrow = W < 700;
 shell(ctx, W, H, S, L, {
 card: [
 { label: '现象', text: '小灯泡的 I-U 曲线不是直线，而是向下弯。' },
@@ -1877,7 +1926,7 @@ Z.T(ctx, '工作点', A.px(X(S.nlU)) + 10 * k, A.py(Y(I)) - 12 * k, { size: 17 *
 });
 
 D(ctx, S.r3, function () {
-Z.readoutBox(ctx, mx(L, 0.02), my(L, 0.70), (L.mx1 - L.mx0) * 0.50, [
+Z.readoutBox(ctx, mx(L, narrow ? 0.02 : 0.62), my(L, narrow ? 0.90 : 0.06), (L.mx1 - L.mx0) * (narrow ? 0.52 : 0.30), [
 ['U', P.fmt(S.nlU, 2) + ' V'],
 ['I', P.fmt(I, 3) + ' A', K.warm],
 ['灯丝电阻 R = U/I', P.fmt(Rl, 2) + ' Ω', K.gold],
@@ -1929,7 +1978,7 @@ guide(ctx, A, X(S.dioU), Y(I), { k: k });
 dot(ctx, A, X(S.dioU), Y(I), { color: K.gold, r: 6, k: k });
 });
 D(ctx, S.r3, function () {
-Z.readoutBox(ctx, mx(L, 0.02), my(L, 0.70), (L.mx1 - L.mx0) * 0.44, [
+Z.readoutBox(ctx, mx(L, 0.62), my(L, 0.02), (L.mx1 - L.mx0) * 0.30, [
 ['U', P.fmt(S.dioU, 2) + ' V'],
 ['I', I < 1e-6 ? '≈ 0' : P.fmt(I, 4) + ' A', K.neg],
 ['U / I 是否恒定', S.dioU > S.dioTh ? '不恒定' : '无意义', K.gold]
@@ -2083,6 +2132,7 @@ Z.readoutBox(ctx, mx(L, 0.02), my(L, 0.62), (L.mx1 - L.mx0) * 0.62, [
 
 function scEx34(ctx, W, H, S) {
 var k = Z.sc(H), L = layout(W, H, {});
+var narrow = W < 700;
 shell(ctx, W, H, S, L, {
 card: [
 { label: '练习3', text: '100 m、4 mm² 的铜导线只用一半（50 m）为 7 A 的空调供电。' },
@@ -2142,7 +2192,7 @@ Z.T(ctx, '两爪间距 ' + P.fmt(P.EX4.L_m * 100, 0) + ' cm', bxx, y + 30 * k,
 { size: 17 * k, align: 'center', color: K.negHi });
 Z.T(ctx, 'I = ' + P.fmt(S.ex4I, 0) + ' A，S = ' + P.fmt(P.EX4.S_mm2, 0) + ' mm²', bxx, y - 60 * k,
 { size: 17 * k, align: 'center', color: K.gold });
-Z.T(ctx, '练习 4：鸟为什么没有触电', x0, my(L, 0.10), { size: 19 * k, color: K.text });
+Z.T(ctx, '练习 4：鸟为什么没有触电', x0, narrow ? 24 * k : my(L, 0.10), { size: 19 * k, color: K.text });
 });
 
 D(ctx, S.r3, function () {
@@ -2298,7 +2348,13 @@ Z.T(ctx, 'L = ' + P.fmt(S.wdL, 2) + ' m', x0 + lenPx / 2, yd - 16 * k,
 { size: 18 * k, align: 'center', color: K.text });
 Z.T(ctx, 'S = ' + P.fmt(S.wdS, 1) + ' mm²', x0 + lenPx + 14 * k, y - 20 * k,
 { size: 18 * k, color: K.text });
+
+if (narrow) {
+Z.T(ctx, '材料：' + P.RHO_ORDER[S.wdMat], x0 + lenPx + 26 * k, y,
+{ size: 17 * k, align: 'left', color: col });
+} else {
 Z.T(ctx, '材料：' + P.RHO_ORDER[S.wdMat], x0, y + 96 * k, { size: 18 * k, color: col });
+}
 
 ctx.save();
 ctx.strokeStyle = col; ctx.lineWidth = 1.6 * k;
@@ -2467,7 +2523,8 @@ bar(ctx, px(u0), yy, Math.max(7 * k, px(u1) - px(u0)), bandH,
 { color: col, fill: col, alpha: isCur ? 0.34 : 0.12, k: k });
 Z.T(ctx, c.name, x0 - 14 * k, yy + bandH / 2,
 { size: 17 * k, align: 'right', color: isCur ? K.gold : K.dim });
-if (!narrow) {
+
+if (narrow) {
 Z.T(ctx, c.note, px(u1) + 14 * k, yy + bandH / 2,
 { size: 15 * k, color: isCur ? K.text : 'rgba(255,255,255,0.38)' });
 }
@@ -3552,6 +3609,13 @@ if (it && it.toggle) it.out.textContent = dispOf(key);
 else if (it) it.out.textContent = dispOf(key);
 }
 
+function overlapArea(p, q) {
+var x0 = Math.max(p.x, q.x), x1 = Math.min(p.x + p.w, q.x + q.w);
+var y0 = Math.max(p.y, q.y), y1 = Math.min(p.y + p.h, q.y + q.h);
+if (x1 <= x0 || y1 <= y0) return 0;
+return (x1 - x0) * (y1 - y0);
+}
+
 function kv(k, v, c) {
 return '<div class="kv"><span>' + k + '</span><b' + (c ? ' style="color:' + c + '"' : '') + '>' + v + '</b></div>';
 }
@@ -4506,6 +4570,80 @@ chk('导线越长 ⇒ 损耗占比越大', c.lossFrac > a.lossFrac, c.lossFrac.t
 chk('损耗占比 = R线/(R线+R负载)',
 Math.abs(a.lossFrac - a.R_demo / (a.R_demo + 5)) < 1e-12, a.lossFrac, a.R_demo / (a.R_demo + 5));
 st.step = sv.step; st.demoS = sv.demoS; st.demoL = sv.demoL;
+return { pass: fails.length === 0, total: Rz.length, failed: fails.length, results: Rz, fails: fails };
+},
+
+verifyLayout: function () {
+var Rz = [], fails = [];
+function chk(name, ok, detail) {
+Rz.push({ name: name, ok: !!ok, detail: detail || '' });
+if (!ok) fails.push(Rz[Rz.length - 1]);
+}
+var A = global.RANIM, Zk = global.KITRES;
+var sv = A ? { frozen: A.frozen, playing: A.playing, t: A.t, stepT: A.stepT } : null;
+var svStep = st.step;
+
+var prevOn = Zk._reg.on;
+Zk._reg.on = true;
+
+var allBad = [];
+for (var i = 0; i < STEPS.length; i++) {
+Zk._regReset();
+if (A) { A.frozen = true; A.t = 3.0; A.stepT = 99; }
+apply(st, i);
+draw();
+var items = Zk._reg.items.slice();
+var boxes = Zk._reg.boxes.slice();
+var bars = Zk._reg.bars.slice();
+
+for (var a = 0; a < items.length; a++) {
+for (var b = a + 1; b < items.length; b++) {
+var ov = overlapArea(items[a], items[b]);
+if (ov > 4) {
+allBad.push({
+step: i + 1, type: 'text-text',
+a: items[a].text.slice(0, 18), b: items[b].text.slice(0, 18),
+area: Math.round(ov),
+ax: Math.round(items[a].cx) + ',' + Math.round(items[a].cy),
+bx: Math.round(items[b].cx) + ',' + Math.round(items[b].cy)
+});
+}
+}
+}
+
+for (var c = 0; c < items.length; c++) {
+for (var d = 0; d < boxes.length; d++) {
+var it = items[c], bx = boxes[d];
+var inter = overlapArea(it, bx);
+var area = it.w * it.h;
+if (area > 0 && inter > area * 0.12 && inter < area * 0.88) {
+allBad.push({
+step: i + 1, type: 'text-box-straddle',
+a: it.text.slice(0, 18), b: bx.kind,
+frac: +(inter / area).toFixed(2),
+ax: Math.round(it.cx) + ',' + Math.round(it.cy)
+});
+}
+}
+}
+}
+
+var byStep = {};
+allBad.forEach(function (b) { (byStep[b.step] = byStep[b.step] || []).push(b); });
+for (var s2 = 1; s2 <= STEPS.length; s2++) {
+var bad = byStep[s2] || [];
+chk('步 ' + s2 + '「' + STEPS[s2 - 1].title.slice(0, 16) + '」无文字压线/重叠',
+bad.length === 0,
+bad.slice(0, 3).map(function (x) {
+return x.type + ':' + x.a + (x.b ? '↔' + x.b : '') + (x.area ? '(' + x.area + 'px²)' : '') + (x.frac ? '(' + x.frac + ')' : '');
+}).join(' | '));
+}
+
+Zk._reg.on = prevOn;
+Zk._regReset();
+if (A && sv) { A.frozen = sv.frozen; A.playing = sv.playing; A.t = sv.t; A.stepT = sv.stepT; if (A.playing) A.startLoop(); }
+apply(st, svStep); draw();
+
 return { pass: fails.length === 0, total: Rz.length, failed: fails.length, results: Rz, fails: fails };
 },
 
