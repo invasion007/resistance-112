@@ -60,6 +60,7 @@
   button.b:disabled{opacity:.35;cursor:default}
   button.b.pri{background:var(--btnM);border-color:#3a3a3a}
   button.b.on{background:#102a34;border-color:#2E9FD0;color:#7FD8F5}
+  button.b.dirty{background:#2a2110;border-color:#F0AC5F;color:#F0AC5F}
   #prog{flex:1 1 140px;height:6px;background:#161616;border-radius:3px;position:relative;cursor:pointer;min-width:90px}
   #progFill{position:absolute;left:0;top:0;bottom:0;background:var(--gold);border-radius:3px;transition:width .18s}
   .ctrl{display:flex;flex-direction:column;gap:3px;min-width:150px;flex:1 1 160px;max-width:250px}
@@ -112,9 +113,10 @@
     <div class="sec"><h2>这一步画布上能点</h2><div id="pTap"></div></div>
     <div class="sec"><h2>操作</h2>
       <div class="row" style="font-size:11.5px;color:#8f8f8f">
-        键盘：← → 翻步 · R 复位 · Home/End 首末步 · 空格 播放/暂停 · S 停止<br>
+        键盘：← → 翻步 · R 复位 · Home/End 首末步 · 空格 开始/暂停 · S 停止<br>
         画布：点对象 = 看讲解 · 左右拖动 = 拖本步的第一个连续量<br>
-        <b style="color:#05E8FD">动画是自动播的</b>：不拖也在走；你一拖一停，它就让位 3.5 s 再来
+        <b style="color:#F0AC5F">参数由你设</b>：拖滑杆设定参数，<b style="color:#F0AC5F">程序不会自己改</b>；
+        点「▶ 开始」才按这组参数播放现象
       </div>
     </div>
   </aside>
@@ -126,11 +128,12 @@
     <button class="b" id="btnPrev">◀ 上一步</button>
     <button class="b pri" id="btnNext">下一步 ▶</button>
     <button class="b" id="btnReset">↺ 复位本步</button>
-    <button class="b" id="btnPlay" title="播放 / 暂停（空格）">❚❚ 暂停</button>
-    <button class="b" id="btnStop" title="停止并回到初始状态（S）">■ 停止</button>
+    <button class="b pri" id="btnPlay" title="按当前参数播放现象 / 暂停（空格）">▶ 开始</button>
+    <button class="b" id="btnStop" title="停止并回到本步初态（S）">■ 停止</button>
     <button class="b" id="btnSpeed" title="切换动画倍速">1.0×</button>
     <div id="prog"><div id="progFill"></div></div>
   </div>
+  <div class="row" style="margin-top:5px"><span id="playHint" style="font-size:11.5px;color:#8f8f8f">参数就绪，点「▶ 开始」播放现象</span></div>
 </footer>
 <script>
 
@@ -493,7 +496,23 @@ onStop: null
 
 AN.reset = function () {
 AN.t = 0; AN.stepT = 0; AN.holdUntil = 0; AN.autoU = 0; AN.autoKey = '';
+AN.phase = 0; AN.lastKey = ''; AN.lastT = 0;
 };
+
+AN.advancePhase = function (vPxRaw, pathLenPx, key) {
+var L = pathLenPx || 700;
+if (AN.frozen || !AN.playing) { AN.lastT = AN.t; return AN.phase; }
+var dt = AN.t - AN.lastT;
+if (!isFinite(dt) || dt < 0) dt = 0;
+if (dt > 0.1) dt = 0.1;
+if (key !== AN.lastKey) { AN.lastKey = key; }
+AN.phase = AN.wrap(AN.phase + dt * (vPxRaw || 0) / L);
+AN.lastT = AN.t;
+return AN.phase;
+};
+AN.phase = 0;
+AN.lastKey = '';
+AN.lastT = 0;
 
 AN.tick = function (dt) {
 if (AN.frozen || !AN.playing) return;
@@ -527,12 +546,15 @@ AN.raf = 0;
 
 AN.play = function () {
 AN.playing = true;
+AN.lastT = AN.t;
+
 AN.startLoop();
 if (AN.onFrame) AN.onFrame();
 };
 
 AN.pause = function () {
 AN.playing = false;
+AN.lastT = AN.t;
 AN.stopLoop();
 if (AN.onFrame) AN.onFrame();
 AN.stopLoop();
@@ -545,6 +567,7 @@ AN.t = 0; AN.stepT = 99; AN.autoU = 0; AN.autoKey = ''; AN.holdUntil = 0;
 if (AN.onStop) AN.onStop();
 AN.playing = false;
 AN.t = 0; AN.stepT = 99;
+AN.phase = 0; AN.lastT = 0;
 AN.autoU = 0; AN.autoKey = '';
 AN.holdUntil = 0;
 AN.stopLoop();
@@ -1287,6 +1310,7 @@ function clamp01(x) { return x < 0 ? 0 : (x > 1 ? 1 : x); }
 
 function scMeasure(ctx, W, H, S) {
 var k = Z.sc(H), L = layout(W, H, {});
+var narrow = W < 700;
 shell(ctx, W, H, S, L, {
 card: [
 { label: '做法', text: '给导体两端加电压 U，测出通过它的电流 I。' },
@@ -1295,7 +1319,7 @@ card: [
 ],
 rings: [[mx(L, 0.05), H * 0.24, (L.mx1 - L.mx0) * 0.90, H * 0.50]]
 });
-var x0 = mx(L, 0.08), x1 = mx(L, 0.90), y0 = my(L, 0.28), y1 = my(L, 0.70);
+var x0 = mx(L, 0.08), x1 = mx(L, 0.90), y0 = my(L, 0.24), y1 = my(L, 0.62);
 
 D(ctx, S.r0, function () {
 Z.wirePath(ctx, [[x0, y0], [x1, y0], [x1, y1], [x0, y1], [x0, y0]], { w: 3 * k });
@@ -1330,7 +1354,7 @@ Z.trailDot(ctx, loop, S.flowPhase, { r: 4.8, k: k });
 });
 
 D(ctx, S.r3, function () {
-var tx = mx(L, 0.10), ty = my(L, 0.80), rh = 22 * k, cw = 84 * k;
+var tx = mx(L, 0.10), ty = my(L, narrow ? 0.86 : 0.80), rh = 22 * k, cw = 84 * k;
 ctx.save();
 ctx.strokeStyle = 'rgba(255,255,255,0.30)'; ctx.lineWidth = 1;
 for (var i = 0; i <= 3; i++) {
@@ -1580,25 +1604,30 @@ var dupBelow = (i > 0 && Math.abs(vals[i] - vals[i - 1]) < 1e-12);
 Z.T(ctx, (cfg.fmt ? cfg.fmt(vals[i]) : P.fmt(vals[i], cfg.dp)) + (cfg.unit || ''),
 bx + i * (bw + gap) + bw / 2, by - h - (dupBelow ? 44 : 18) * k,
 { size: 17 * k, align: 'center', color: hi ? K.gold : K.text });
+
+if (cfg.barTag) {
+Z.T(ctx, cfg.barTag(i, S), bx + i * (bw + gap) + bw / 2, by - h - (dupBelow ? 66 : 40) * k,
+{ size: 15 * k, align: 'center', color: hi ? K.gold : K.dim });
+}
 }
 });
 
-D(ctx, S.r2, function () {
-
-var ry = narrow ? (by + 76 * k) : my(L, 0.70);
-var rw = narrow ? (L.mx1 - L.mx0) * 0.88 : (L.mx1 - L.mx0) * 0.46;
-Z.readoutBox(ctx, mx(L, 0.02), ry, rw, cfg.rows(S), { k: k });
-});
-
-if (cfg.params && !narrow) {
 D(ctx, S.r3, function () {
-var rowsP = cfg.params(S);
 var pbx = mx(L, 0.02), pby = by + 44 * k;
+var parts = [];
+if (cfg.params) parts = parts.concat(cfg.params(S).map(function (r) { return r[0] + ' = ' + r[1]; }));
+if (cfg.rows) parts = parts.concat(cfg.rows(S).map(function (r) { return r[0] + ' = ' + r[1]; }));
+var line = parts.join('   ');
 
-var line = rowsP.map(function (r) { return r[0] + ' = ' + r[1]; }).join('   ');
-Z.T(ctx, line, pbx, pby, { size: 17 * k, color: K.text });
-});
+var maxCh = narrow ? 22 : 46;
+if (line.length <= maxCh * 2) {
+Z.T(ctx, line.slice(0, maxCh), pbx, pby, { size: 16 * k, color: K.text });
+if (line.length > maxCh) Z.T(ctx, line.slice(maxCh), pbx, pby + 22 * k, { size: 16 * k, color: K.text });
+} else {
+Z.T(ctx, line.slice(0, maxCh), pbx, pby, { size: 16 * k, color: K.text });
+Z.T(ctx, line.slice(maxCh, maxCh * 2), pbx, pby + 22 * k, { size: 16 * k, color: K.text });
 }
+});
 }
 
 function scLengthLaw(ctx, W, H, S) {
@@ -1611,6 +1640,7 @@ card: [
 vals: function (S) { return [1, S.lenB, 3]; },
 labels: ['L = 1', 'L = ' + P.fmt(S.lenB, 2), 'L = 3'],
 hi: 1, dp: 2, unit: '×',
+barTag: function (i, S) { return ['l=1（a）', 'l=' + P.fmt(S.lenB, 2) + '（b）', 'l=3'][i]; },
 rows: function (S) {
 return [['b 的长度 / a', P.fmt(S.lenB, 2) + ' ×'],
 ['U_b / U_a', P.fmt(S.lenB, 2) + ' ×', K.gold],
@@ -1635,6 +1665,7 @@ card: [
 vals: function (S) { return [1 / 1, 1 / S.areaC, 1 / 3]; },
 labels: ['S = 1', 'S = ' + P.fmt(S.areaC, 2), 'S = 3'],
 hi: 1, dp: 3, unit: '×',
+barTag: function (i, S) { return ['S=1（a）', 'S=' + P.fmt(S.areaC, 2) + '（c）', 'S=3'][i]; },
 rows: function (S) {
 return [['c 的面积 / a', P.fmt(S.areaC, 2) + ' ×'],
 ['U_c / U_a', P.fmt(1 / S.areaC, 3) + ' ×', K.gold],
@@ -1663,6 +1694,7 @@ vals: function () { return [rA, rD]; },
 labels: ['a：' + nA, 'd：' + nD],
 hi: 1, dp: 2, unit: '',
 fmt: function (v) { return P.sci(v, 1) + ' Ω·m'; },
+barTag: function (i) { return ['ρ = ' + P.sci(i === 0 ? rA : rD, 2), ''][i] || ''; },
 rows: function () {
 
 return [['R_d / R_a', P.fmt(rD / rA, 2) + ' ×', K.gold]];
@@ -1805,6 +1837,11 @@ ctx.fillStyle = g; ctx.beginPath(); ctx.arc(x1, (y0 + y1) / 2, 66 * k, 0, Math.P
 ctx.restore();
 Z.T(ctx, S.heatMat ? '小灯泡（看它变暗）' : '小灯泡（看它变亮）', x1, (y0 + y1) / 2 + 60 * k,
 { size: 17 * k, align: 'center', color: lum < 0.35 ? K.neg : K.text });
+
+Z.T(ctx, 'R = ' + P.fmt(S.R_heat, 1) + ' Ω', x0 - 16 * k, (y0 + y1) / 2 + 96 * k,
+{ size: 17 * k, align: 'right', color: K.warm });
+Z.T(ctx, 'I = ' + P.fmt(S.I_heat, 3) + ' A', x1, (y0 + y1) / 2 + 96 * k,
+{ size: 17 * k, align: 'center', color: K.neg });
 });
 
 D(ctx, S.r3, function () {
@@ -1923,6 +1960,9 @@ D(ctx, S.r1, function () {
 guide(ctx, A, X(S.nlU), Y(I), { k: k });
 dot(ctx, A, X(S.nlU), Y(I), { color: K.gold, r: 6, k: k });
 Z.T(ctx, '工作点', A.px(X(S.nlU)) + 10 * k, A.py(Y(I)) - 12 * k, { size: 17 * k, color: K.gold });
+
+Z.T(ctx, 'R = ' + P.fmt(Rl, 1) + ' Ω（随 U 变大）', A.px(X(2.0)), A.py(Y(P.lampCurrent(2.0, S.nlR0, 2.0))) - 30 * k,
+{ size: 16 * k, color: K.gold });
 });
 
 D(ctx, S.r3, function () {
@@ -3346,6 +3386,7 @@ for (var b in BASE) st[b] = BASE[b];
 var S = {};
 
 var mDown = false;
+var paramDirty = false;
 
 var K_VIEW = 8e5;
 var V_PX_MIN = 4, V_PX_MAX = 240;
@@ -3382,8 +3423,6 @@ o.anim = !!A; o.T = T; o.frozen = !!(A && A.frozen);
 o.rise = function (atMs, durMs) { return A ? A.rise(atMs, durMs) : 1; };
 o.held = A ? A.held() : true;
 o.playing = A ? A.playing : false;
-
-o.flowPhase = PHASE; o.wirePhase = PHASE; o.slowPhase = 0.08;
 
 o.r0 = o.rise(0, 440); o.r1 = o.rise(200, 440); o.r2 = o.rise(410, 440);
 o.r3 = o.rise(620, 460); o.r4 = o.rise(840, 480);
@@ -3518,13 +3557,21 @@ default: Is = 1;
 o.Iscene = Is;
 o.vPxRaw = Is > 0 ? Is * 60 : 0;
 o.vPx = o.vPxRaw > 0 ? clamp(o.vPxRaw, V_PX_MIN, V_PX_MAX) : 0;
-var _fwd = function (mult) {
-return (A && !A.frozen && o.vPxRaw > 0) ? A.wrap(T * o.vPxRaw / 700 * (mult || 1)) : PHASE;
-};
-o.flowPhase = _fwd(1);
-o.wirePhase = _fwd(1);
-o.slowPhase = _fwd(0.5);
-o.pumpPhase = _fwd(1.5);
+
+var ph;
+if (A && A.frozen) {
+ph = PHASE;
+} else if (A && A.playing) {
+ph = A.advancePhase(o.vPxRaw, 700, scn);
+} else if (A) {
+ph = A.phase;
+} else {
+ph = PHASE;
+}
+o.flowPhase = ph;
+o.wirePhase = ph;
+o.slowPhase = A ? A.wrap(ph * 0.5) : PHASE2;
+o.pumpPhase = A ? A.wrap(ph * 1.5) : PHASE2;
 
 o.click = CLICK;
 return o;
@@ -3567,38 +3614,8 @@ A.onStop = function () { resetStep(); };
 A.startLoop();
 }
 
-var AUTODRV = {
-intro: { key: 'demoS', from: 0.5, to: 10, dur: 8, step: 0.5 },
-measure: { key: 'srcU', from: 0.5, to: 6, dur: 8, step: 0.25 },
-uiline: { key: 'dU', from: 0.5, to: 6, dur: 8, step: 0.1 },
-compare: { key: 'cmpU', from: 0.5, to: 6, dur: 8, step: 0.25 },
-twoviews: { key: 'tvU', from: 0.5, to: 6, dur: 8, step: 0.1 },
-invariant: { key: 'errU', from: 0.5, to: 8, dur: 9, step: 0.1 },
-controlvar: { key: 'cvU', from: 1, to: 9, dur: 8, step: 0.5 },
-lengthlaw: { key: 'lenB', from: 1, to: 4, dur: 8, step: 0.25 },
-arealaw: { key: 'areaC', from: 1, to: 4, dur: 8, step: 0.25 },
-materiallaw: { key: 'matD', from: 0, to: 7, dur: 9, step: 1 },
-wiredrag: { key: 'wdS', from: 0.2, to: 10, dur: 9, step: 0.2 },
-rheostat: { key: 'rhX', from: 0, to: 1, dur: 9, step: 0.01 },
-rholaw: { key: 'lawL', from: 0.2, to: 4, dur: 8, step: 0.1 },
-rhotable: { key: 'tblMat', from: 0, to: 7, dur: 9, step: 1 },
-rhoscale: { key: 'rsFree', from: 0, to: 1, dur: 10, step: 0.01 },
-temp: { key: 'heatT', from: 20, to: 2000, dur: 9, step: 10 },
-super: { key: 'scT', from: 300, to: 20, dur: 9, step: 5 },
-linear: { key: 'linU', from: 0, to: 6, dur: 8, step: 0.1 },
-nonlinear: { key: 'nlU', from: 0, to: 4, dur: 8, step: 0.1 },
-diode: { key: 'dioU', from: -2.5, to: 1.1, dur: 9, step: 0.02 },
-chain: { key: 'chainP', from: 1, to: 4, dur: 6, step: 1 },
-ex12: { key: 'ex1Pt', from: 0, to: 3, dur: 7, step: 1 },
-ex567: { key: 'ex5k', from: 1, to: 2, dur: 8, step: 0.02 }
-};
 function autoDrive() {
-var A = global.RANIM;
-if (!A || A.frozen || !A.playing) return;
-if (mDown || A.held()) return;
-var cfg = AUTODRV[STEPS[st.step].scene];
-if (!cfg) return;
-A.auto(cfg, st, function (k) { syncCtrl(k); });
+return;
 }
 function syncCtrl(key) {
 if (key === 'rsFree') st.rsFreeLock = 1;
@@ -3893,8 +3910,8 @@ draw();
 function toggleParam(key) {
 if (key === 'cvMode') st.cvMode = (st.cvMode + 1) % 3;
 else st[key] = st[key] ? 0 : 1;
-var A = global.RANIM;
-if (A) A.hold(3.5);
+paramDirty = true;
+syncPlayBtn();
 draw();
 }
 function setByFraction(key, f, invert) {
@@ -3934,10 +3951,14 @@ $('progFill').style.width = ((st.step + 1) / STEPS.length * 100).toFixed(2) + '%
 function go(i) {
 if (i < 0 || i >= STEPS.length) return;
 var A = global.RANIM;
-if (A) { A.hold(0.8); A.beginStep(); }
+if (A) { A.beginStep(); }
 apply(st, i);
+
+paramDirty = false;
+if (A) { A.phase = 0; A.lastT = A.t; }
+if (A && !A.frozen) { A.pause(); }
 draw();
-if (A && !A.frozen) startAnim(); else if (global.requestAnimationFrame) global.requestAnimationFrame(draw);
+syncPlayBtn();
 }
 function next() { go(st.step + 1); }
 function prev() { go(st.step - 1); }
@@ -4751,22 +4772,38 @@ function syncPlayBtn() {
 var A = global.RANIM;
 var b = $('btnPlay');
 if (b) {
-b.textContent = (A && A.playing) ? '❚❚ 暂停' : '▶ 播放';
-b.classList.toggle('on', !!(A && A.playing));
+if (A && A.playing) {
+b.textContent = '❚❚ 暂停';
+b.classList.add('on');
+b.classList.remove('dirty');
+} else {
+b.textContent = paramDirty ? '▶ 开始（已改参数）' : '▶ 开始';
+b.classList.remove('on');
+b.classList.toggle('dirty', !!paramDirty);
+}
 }
 var s2 = $('btnSpeed');
 if (s2) s2.textContent = (A ? A.speed : 1).toFixed(1) + '×';
+var hint = $('playHint');
+if (hint) {
+hint.textContent = paramDirty
+? '参数已改 —— 点「▶ 开始」按这组参数重播现象'
+: (A && A.playing ? '正在按当前参数播放现象' : '参数就绪，点「▶ 开始」播放现象');
+hint.style.color = paramDirty ? '#F0AC5F' : '#8f8f8f';
+}
 }
 function togglePlay() {
 var A = global.RANIM;
 if (!A) return;
-if (A.playing) A.pause(); else A.play();
+if (A.playing) { A.pause(); }
+else { paramDirty = false; A.play(); }
 syncPlayBtn(); draw();
 }
 function stopAll() {
 var A = global.RANIM;
 if (!A) return;
 A.stop();
+paramDirty = false;
 syncPlayBtn(); draw();
 }
 function cycleSpeed() {
