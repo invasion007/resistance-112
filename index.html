@@ -480,12 +480,13 @@
   return (global.performance && global.performance.now) ? global.performance.now() : Date.now();
  }
  function loop(ts) {
+
+  if (!AN.playing || AN.frozen) { AN.raf = 0; return; }
   AN.raf = global.requestAnimationFrame(loop);
   var dt = (ts - AN.lastTs) / 1000;
   AN.lastTs = ts;
   if (!isFinite(dt) || dt <= 0) dt = 1 / 60;
   if (dt > 0.1) dt = 0.1;
-  if (!AN.playing || AN.frozen) return;
   AN.tick(dt);
   if (AN.onFrame) AN.onFrame();
  }
@@ -508,7 +509,9 @@
 
  AN.pause = function () {
   AN.playing = false;
+  AN.stopLoop();
   if (AN.onFrame) AN.onFrame();
+  AN.stopLoop();
  };
  AN.togglePlay = function () { AN.playing ? AN.pause() : AN.play(); };
 
@@ -518,9 +521,15 @@
   if (AN.onStop) AN.onStop();
   AN.playing = false;
   AN.t = 0; AN.stepT = 99;
+  AN.autoU = 0; AN.autoKey = '';
+  AN.holdUntil = 0;
+  AN.stopLoop();
   if (AN.onFrame) AN.onFrame();
+  AN.stopLoop();
  };
  AN.setSpeed = function (s) { AN.speed = s; };
+
+ AN.running = function () { return !!AN.raf; };
 
  AN.freeze = function (sec) {
   AN.frozen = true; AN.playing = false;
@@ -4322,18 +4331,61 @@
     Rz.push({ name: name, got: got, want: want, ok: !!ok });
     if (!ok) fails.push(Rz[Rz.length - 1]);
    }
-   var sv = { t: A.t, playing: A.playing, frozen: A.frozen, hold: A.holdUntil };
-   A.frozen = false; A.playing = true; A.holdUntil = 0; A.t = 4;
+   var sv = { t: A.t, playing: A.playing, frozen: A.frozen, hold: A.holdUntil, stepT: A.stepT };
+
+   A.frozen = false; A.playing = true; A.holdUntil = 0; A.t = 4; A.startLoop();
+   var rafBefore = !!A.raf;
    A.pause();
    var t0 = A.t, h0 = hash();
-   A.tick(0.8);
-   var t1 = A.t, h1 = hash();
-   chk('暂停后时钟不推进', Math.abs(t1 - t0) < 1e-12, t1 - t0, '0');
-   chk('暂停后画面逐字节相同', h1 === h0, h1, h0);
-   A.t = 9; A.play(); A.stop();
-   chk('停止后时钟归零', A.t === 0, A.t, 0);
-   chk('停止后不再播放', A.playing === false, A.playing, false);
-   A.t = sv.t; A.playing = sv.playing; A.frozen = sv.frozen; A.holdUntil = sv.hold;
+   chk('① 暂停前循环确实在跑', rafBefore, rafBefore, true);
+   chk('① 暂停后 rAF 循环被取消（不是空转）', !A.raf, A.raf ? 'still running' : 0, 0);
+   chk('① 暂停后 playing = false', A.playing === false, A.playing, false);
+
+   var ticked = A.tick(0.8);
+   var t1 = A.t;
+   chk('① 暂停后时钟不推进（tick 0.8 s 无效）', Math.abs(t1 - t0) < 1e-12, t1 - t0, '0');
+
+   var au0 = A.autoU;
+   A.auto({ key: 'demoS', from: 0.5, to: 10, dur: 1, step: 0.5 }, st, null);
+   chk('① 暂停后自动演示不推进', A.autoU === au0, A.autoU, au0);
+
+   var h1 = hash();
+   chk('① 暂停后画面逐字节相同', h1 === h0, h1, h0);
+
+   var waitStart = Date.now();
+   while (Date.now() - waitStart < 260) {  }
+   chk('① 真等 260 ms 后时钟仍不走', A.t === t0, A.t, t0);
+   chk('① 真等 260 ms 后画面仍逐字节相同', hash() === h0, hash(), h0);
+   chk('① 真等 260 ms 后循环仍是停的', !A.raf, A.raf ? 'restarted!' : 0, 0);
+
+   A.play();
+   chk('② 恢复后循环重新在跑', !!A.raf, !!A.raf, true);
+   chk('② 恢复后时钟从暂停处接着走（未归零、未跳帧）', A.t === t0, A.t, t0);
+   chk('② 恢复后 playing = true', A.playing === true, A.playing, true);
+
+   A.t = 9; A.stepT = 7; A.autoU = 0.6; A.autoKey = 'demoS'; A.holdUntil = 99;
+   var stepBefore = st.step;
+   A.stop();
+   chk('③ 停止后时钟归零', A.t === 0, A.t, 0);
+   chk('③ 停止后入场节拍归零（stepT = 99 视为已走完）', A.stepT === 99, A.stepT, 99);
+   chk('③ 停止后自动扫掠归零', A.autoU === 0 && A.autoKey === '', A.autoU + '/' + A.autoKey, '0/');
+   chk('③ 停止后 hold 窗口清空', A.holdUntil === 0, A.holdUntil, 0);
+   chk('③ 停止后不再播放', A.playing === false, A.playing, false);
+   chk('③ 停止后循环是停的', !A.raf, A.raf ? 'running' : 0, 0);
+   chk('③ 停止触发了本步复位（停在原步但状态回初态）', st.step === stepBefore, st.step, stepBefore);
+
+   var sAfterStop = JSON.stringify(derive(st));
+   var svStep = st.step;
+   apply(st, svStep);
+   var sFresh = JSON.stringify(derive(st));
+   chk('③ 停止后的状态 == 重新进入本步的初态（逐字段）', sAfterStop === sFresh,
+    sAfterStop.length + ' chars', sFresh.length + ' chars');
+
+   var timers = 0;
+   if (A.raf) timers++;
+   chk('④ 暂停/停止后，本课自己的 rAF 句柄为 0', A.raf === 0, A.raf, 0);
+
+   A.t = sv.t; A.playing = sv.playing; A.frozen = sv.frozen; A.holdUntil = sv.hold; A.stepT = sv.stepT;
    if (A.playing) A.startLoop();
    draw();
    return { pass: fails.length === 0, total: Rz.length, failed: fails.length, results: Rz, fails: fails };
