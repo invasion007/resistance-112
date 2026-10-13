@@ -186,6 +186,20 @@
 
   function areaAfterStretch(S, L, L2) { return L2 > 0 ? S * L / L2 : 0; }
 
+  function relativeR(L1, S1, rho1, L0, S0, rho0) {
+    return (L1 / L0) * (rho1 / rho0) / (S1 / S0);
+  }
+
+  function rheostatR(rho, Ltotal, S, x) {
+    var xx = x < 0 ? 0 : (x > 1 ? 1 : x);
+    return resistanceFromRho(rho, Ltotal * xx, S);
+  }
+
+  function rheostatLength(Ltotal, x) {
+    var xx = x < 0 ? 0 : (x > 1 ? 1 : x);
+    return Ltotal * xx;
+  }
+
   function rhoAtTemp(rho0, alpha, tC, t0C) {
     return rho0 * (1 + alpha * (tC - (t0C == null ? TEMP_ROOM : t0C)));
   }
@@ -274,6 +288,27 @@
     chk('拉长到 2 倍 ⇒ R 变 4 倍', stretchFactor(0.3, 0.6), 4, 1e-12);
     chk('拉长后体积不变：S\' = S·L/L\'', areaAfterStretch(1e-6, 0.3, 0.4), 0.75e-6, 1e-18);
 
+    chk('只动 L：R/R₀ = L/L₀（L 变 3 倍 ⇒ 3 倍）',
+      relativeR(3, 1, 1, 1, 1, 1), 3, 1e-12);
+    chk('只动 S：R/R₀ = S₀/S（S 变 2 倍 ⇒ 减半）',
+      relativeR(1, 2, 1, 1, 1, 1), 0.5, 1e-12);
+    chk('只动材料：R/R₀ = ρ/ρ₀（镍铬/铜 ⇒ 58.82）',
+      relativeR(1, 1, RHO['镍铬合金'], 1, 1, RHO['铜']), RHO['镍铬合金'] / RHO['铜'], 1e-12);
+    chk('三因素同动：L×2、S×4、换镍铬 ⇒ 2×(58.82)/4 = 29.41',
+      relativeR(2, 4, RHO['镍铬合金'], 1, 1, RHO['铜']), 2 * (RHO['镍铬合金'] / RHO['铜']) / 4, 1e-12);
+    chk('相对式与绝对式自洽：R = R₀·相对比',
+      resistanceFromRho(RHO['铜'], 2, 4e-6) / resistanceFromRho(RHO['铜'], 1, 1e-6),
+      relativeR(2, 4, RHO['铜'], 1, 1, RHO['铜']), 1e-12);
+
+    chk('滑片在最左（x=0）⇒ 接入长度 0 ⇒ R = 0', rheostatR(RHO['镍铬合金'], 0.5, 1e-6, 0), 0, 1e-18);
+    chk('滑片在最右（x=1）⇒ 接入全长 ⇒ R = ρL/S',
+      rheostatR(RHO['镍铬合金'], 0.5, 1e-6, 1), resistanceFromRho(RHO['镍铬合金'], 0.5, 1e-6), 1e-18);
+    chk('滑片位置 x 与电阻成正比：x=0.5 ⇒ 一半',
+      rheostatR(RHO['镍铬合金'], 0.5, 1e-6, 0.5) / rheostatR(RHO['镍铬合金'], 0.5, 1e-6, 1), 0.5, 1e-12);
+    chk('接入长度 L = L_total · x', rheostatLength(0.5, 0.3), 0.15, 1e-15);
+    chkT('滑片位置越靠右 ⇒ 接入越长 ⇒ 电阻越大（单调）',
+      rheostatR(RHO['镍铬合金'], 0.5, 1e-6, 0.8) > rheostatR(RHO['镍铬合金'], 0.5, 1e-6, 0.4));
+
     chkT('a 与 b：只有 L 不同', onlyOneDiffers({ L: 1, S: 1, material: 'm' }, { L: 2, S: 1, material: 'm' }));
     chkT('a 与 c：只有 S 不同', onlyOneDiffers({ L: 1, S: 1, material: 'm' }, { L: 1, S: 2, material: 'm' }));
     chkT('a 与 d：只有材料不同', onlyOneDiffers({ L: 1, S: 1, material: 'm' }, { L: 1, S: 1, material: 'n' }));
@@ -340,6 +375,7 @@
     lampCurrent: lampCurrent, lampR: lampR, isLinearDevice: isLinearDevice, diodeCurrent: diodeCurrent,
     seriesVoltageRatio: seriesVoltageRatio, onlyOneDiffers: onlyOneDiffers,
     saltColumnR: saltColumnR, blockR_AB: blockR_AB, blockR_CD: blockR_CD,
+    relativeR: relativeR, rheostatR: rheostatR, rheostatLength: rheostatLength,
     lampRatedR: lampRatedR, leadWireR: leadWireR, voltageLoss: voltageLoss, birdVoltage: birdVoltage,
     runSelfTest: runSelfTest
   };
@@ -2055,10 +2091,178 @@
     });
   }
 
+  function scWireDrag(ctx, W, H, S) {
+    var k = Z.sc(H), L = layout(W, H, {});
+    var narrow = W < 700;
+    shell(ctx, W, H, S, L, {
+      card: narrow ? null : [
+        { label: '拖它', text: '把导线拉长、拉粗，看电阻怎么变 —— 这就是控制变量法的"本体"。' },
+        { label: '定量', text: 'R/R₀ = (L/L₀) · (ρ/ρ₀) / (S/S₀)：三个因素各占一个因子。' },
+        { formula: 'R = ρ L / S' }
+      ]
+    });
+
+    var y = my(L, 0.34);
+    var x0 = mx(L, 0.08);
+    var LmaxPx = (L.mx1 - L.mx0) * (narrow ? 0.86 : 0.88);
+    var rho = P.RHO[P.RHO_ORDER[S.wdMat]];
+    var rho0 = P.RHO[P.RHO_ORDER[S.wdMat0]];
+
+    var lenPx = LmaxPx * (S.wdL / 4);
+    var thick = (3 + 17 * Math.sqrt(S.wdS / 10)) * k;
+    var col = S.wdMat === 1 ? K.gold : (S.wdMat === 7 ? K.negHi : K.text);
+
+    D(ctx, S.r0, function () {
+
+      ctx.save();
+      ctx.strokeStyle = 'rgba(255,255,255,0.30)'; ctx.lineWidth = 1.2 * k; ctx.setLineDash([6 * k, 5 * k]);
+      ctx.beginPath(); ctx.moveTo(x0, y - 46 * k); ctx.lineTo(x0, y + 46 * k); ctx.stroke();
+      ctx.beginPath(); ctx.moveTo(x0 + lenPx, y - 46 * k); ctx.lineTo(x0 + lenPx, y + 46 * k); ctx.stroke();
+      ctx.restore();
+      Z.T(ctx, '接线柱', x0, y + 60 * k, { size: 16 * k, align: 'center', color: K.dim });
+      Z.T(ctx, '接线柱', x0 + lenPx, y + 60 * k, { size: 16 * k, align: 'center', color: K.dim });
+    });
+
+    D(ctx, S.r1, function () {
+      ctx.save();
+      ctx.strokeStyle = col; ctx.lineWidth = thick; ctx.lineCap = 'butt';
+      ctx.shadowColor = col; ctx.shadowBlur = 6 * k;
+      ctx.beginPath(); ctx.moveTo(x0, y); ctx.lineTo(x0 + lenPx, y); ctx.stroke();
+      ctx.restore();
+
+      ctx.save();
+      ctx.strokeStyle = K.dim; ctx.lineWidth = 1.2 * k;
+      var yd = y - 60 * k;
+      ctx.beginPath(); ctx.moveTo(x0, yd); ctx.lineTo(x0 + lenPx, yd); ctx.stroke();
+      ctx.beginPath(); ctx.moveTo(x0, yd - 5 * k); ctx.lineTo(x0, yd + 5 * k);
+      ctx.moveTo(x0 + lenPx, yd - 5 * k); ctx.lineTo(x0 + lenPx, yd + 5 * k); ctx.stroke();
+      ctx.restore();
+      Z.T(ctx, 'L = ' + P.fmt(S.wdL, 2) + ' m', x0 + lenPx / 2, yd - 16 * k,
+        { size: 18 * k, align: 'center', color: K.text });
+      Z.T(ctx, 'S = ' + P.fmt(S.wdS, 1) + ' mm²', x0 + lenPx + 14 * k, y - 20 * k,
+        { size: 18 * k, color: K.text });
+      Z.T(ctx, '材料：' + P.RHO_ORDER[S.wdMat], x0, y + 96 * k, { size: 18 * k, color: col });
+
+      ctx.save();
+      ctx.strokeStyle = col; ctx.lineWidth = 1.6 * k;
+      ctx.beginPath(); ctx.arc(x0 + lenPx + 6 * k, y + 40 * k, thick * 0.5 + 2 * k, 0, Math.PI * 2); ctx.stroke();
+      ctx.restore();
+    });
+
+    D(ctx, S.r2, function () {
+      var loop = [[x0, y], [x0 + lenPx, y]];
+      Z.chargeFlow(ctx, loop, Math.max(4, Math.round(14 * Math.sqrt(S.wdS / 10))), S.flowPhase, { kind: 'neg', r: 3.8 * k });
+      Z.trailDot(ctx, loop, S.flowPhase, { r: 4.4, k: k });
+    });
+
+    D(ctx, S.r3, function () {
+      var bx = mx(L, 0.02), by = my(L, 0.60);
+      var rows = [
+        ['R / R₀（当前 / 基准）', P.fmt(S.wdRel, 3) + ' ×', K.gold],
+        ['长度因子 L/L₀', P.fmt(S.wdL / 1, 2) + ' ×'],
+        ['面积因子 S₀/S（面积大 ⇒ 电阻小）', P.fmt(1 / S.wdS, 3) + ' ×'],
+        ['材料因子 ρ/ρ₀', P.fmt(rho / rho0, 2) + ' ×'],
+        ['R = ρL/S', P.fmt(S.wdR, 4) + ' Ω', K.gold]
+      ];
+      Z.readoutBox(ctx, bx, by, (L.mx1 - L.mx0) * (narrow ? 0.92 : 0.62), rows, { k: k });
+      Z.T(ctx, '三个因子相乘 = 相对电阻（控制变量法的定量形式）',
+        bx, by + rows.length * 23 * k + 16 * k, { size: 17 * k, color: K.dim });
+    });
+  }
+
+  function scRheostat(ctx, W, H, S) {
+    var k = Z.sc(H), L = layout(W, H, {});
+    var narrow = W < 700;
+    shell(ctx, W, H, S, L, {
+      card: narrow ? null : [
+        { label: '原理', text: '接入电路的是滑片到某一端的**那一段电阻丝**；移动滑片就是改变接入长度。' },
+        { label: '依据', text: '由 R ∝ L 可知：接入越长 ⇒ 电阻越大 ⇒ 电路电流越小。' },
+        { formula: 'R(x) = ρ · L_总 · x / S' }
+      ]
+    });
+
+    var bx = mx(L, 0.10), bw = (L.mx1 - L.mx0) * (narrow ? 0.84 : 0.84);
+    var by = my(L, narrow ? 0.24 : 0.30), bh = (L.my1 - L.my0) * 0.20;
+    var x = S.rhX;
+    var rho = P.RHO['镍铬合金'];
+    var Rtot = P.rheostatR(rho, 0.50, 0.5e-6, 1);
+
+    D(ctx, S.r0, function () {
+
+      ctx.save();
+      ctx.fillStyle = 'rgba(255,255,255,0.06)';
+      ctx.fillRect(bx, by - bh / 2, bw, bh);
+      ctx.strokeStyle = 'rgba(255,255,255,0.45)'; ctx.lineWidth = 1.4 * k;
+      ctx.strokeRect(bx, by - bh / 2, bw, bh);
+      ctx.restore();
+
+      var n = 60, segW = bw / n;
+      for (var i = 0; i < n; i++) {
+        var xx = bx + i * segW + segW * 0.5;
+        var on = (i / n) <= x;
+        ctx.save();
+        ctx.strokeStyle = on ? K.gold : 'rgba(255,255,255,0.30)';
+        ctx.lineWidth = on ? 2.4 * k : 1.2 * k;
+        if (on) { ctx.shadowColor = K.gold; ctx.shadowBlur = 5 * k; }
+        ctx.beginPath(); ctx.moveTo(xx, by - bh / 2 + 4 * k); ctx.lineTo(xx, by + bh / 2 - 4 * k); ctx.stroke();
+        ctx.restore();
+      }
+
+      if (narrow) {
+        Z.T(ctx, '电阻丝（镍铬）', bx, by + bh / 2 + 48 * k, { size: 16 * k, color: K.dim });
+      } else {
+        Z.T(ctx, '电阻丝（镍铬合金，总长 0.50 m）', bx, by - bh / 2 - 22 * k,
+          { size: 17 * k, color: K.dim });
+      }
+    });
+
+    D(ctx, S.r1, function () {
+      var px = bx + bw * x;
+
+      ctx.save();
+      ctx.strokeStyle = K.text; ctx.lineWidth = 2.6 * k;
+      ctx.beginPath(); ctx.moveTo(px, by - bh / 2 - 34 * k); ctx.lineTo(px, by - bh / 2); ctx.stroke();
+      ctx.fillStyle = K.text;
+      ctx.fillRect(px - 9 * k, by - bh / 2 - 40 * k, 18 * k, 8 * k);
+      ctx.restore();
+      Z.T(ctx, '滑片', px, by - bh / 2 - (narrow ? 74 : 56) * k, { size: 17 * k, align: 'center', color: K.text });
+
+      Z.T(ctx, '接入长度 ' + P.fmt(P.rheostatLength(0.50, x), 3) + ' m',
+        bx + bw * x / 2, by + bh / 2 + (narrow ? 24 : 22) * k, { size: 17 * k, align: 'center', color: K.gold });
+
+      var yTop = by - bh / 2 - 84 * k;
+      Z.wirePath(ctx, [[bx, by - bh / 2], [bx, yTop], [px, yTop], [px, by - bh / 2 - 40 * k]], { w: 2.4 * k });
+      ctx.save();
+      ctx.strokeStyle = K.text; ctx.lineWidth = 2 * k;
+      ctx.beginPath(); ctx.arc(bx + bw * 0.5, yTop, 15 * k, 0, Math.PI * 2); ctx.stroke();
+      ctx.restore();
+      Z.M(ctx, 'A', bx + bw * 0.5, yTop, { size: 18 * k, align: 'center', color: K.text });
+      Z.T(ctx, '电流表（看电流怎么随滑片变）', bx + bw * 0.5, yTop - 30 * k,
+        { size: 17 * k, align: 'center', color: K.dim });
+    });
+
+    D(ctx, S.r2, function () {
+      var px = bx + bw * x;
+      var loop = [[bx, by - bh / 2], [bx, by - bh / 2 - 84 * k], [px, by - bh / 2 - 84 * k], [px, by - bh / 2 - 40 * k]];
+      Z.chargeFlow(ctx, loop, 10, S.flowPhase, { kind: 'neg', r: 3.8 * k });
+    });
+
+    D(ctx, S.r3, function () {
+      Z.readoutBox(ctx, mx(L, 0.02), my(L, 0.66), (L.mx1 - L.mx0) * (narrow ? 0.92 : 0.58), [
+        ['滑片位置 x', P.fmt(x, 2) + '（0 = 最左）'],
+        ['接入长度 L = 0.50 · x', P.fmt(P.rheostatLength(0.50, x), 3) + ' m'],
+        ['接入电阻 R = ρL/S', P.fmt(P.rheostatR(rho, 0.50, 0.5e-6, x), 2) + ' Ω', K.gold],
+        ['最大电阻（滑片在最右）', P.fmt(Rtot, 2) + ' Ω'],
+        ['判据', '接入越长 ⇒ R 越大 ⇒ I 越小']
+      ], { k: k });
+    });
+  }
+
   var SCENES = {
     intro: scIntro, measure: scMeasure, uiline: scUILine, compare: scCompare,
     twoviews: scTwoViews, invariant: scInvariant, controlvar: scControlVar, lengthlaw: scLengthLaw,
     arealaw: scAreaLaw, materiallaw: scMaterialLaw, rholaw: scRhoLaw,
+    wiredrag: scWireDrag, rheostat: scRheostat,
     rhotable: scRhoTable, temp: scTemp, super: scSuper, linear: scLinear,
     nonlinear: scNonlinear, diode: scDiode, chain: scChain, ex12: scEx12,
     ex34: scEx34, ex567: scEx567
@@ -2129,6 +2333,16 @@
     materiallaw: [
       rect(0.06, 0.20, 0.34, 0.56, 'a 的材料', 'matA', { note: '点它：a 换成铜，电阻变小' }),
       rect(0.44, 0.20, 0.48, 0.56, 'd 的材料', 'matD', { note: '点它：d 换成镍铬合金，电阻大得多' })
+    ],
+    wiredrag: [
+      rect(0.04, 0.18, 0.60, 0.24, '导线本体', 'pokeRod2', { note: '点它：导线可以拉长、变粗、换材料 —— 三个因素都在这一根上' }),
+      rect(0.66, 0.18, 0.30, 0.24, '横截面', 'pokeCross2', { note: '点它：S 在分母里，面积越大电阻越小' }),
+      rect(0.04, 0.56, 0.92, 0.34, '三因子分解', 'pokeFactors', { note: '点它：R/R₀ = (L/L₀)·(ρ/ρ₀)/(S/S₀)，三个因子相乘' })
+    ],
+    rheostat: [
+      rect(0.06, 0.18, 0.88, 0.28, '电阻丝与滑片', 'pokeRheoWire', { note: '点它：接入电路的是滑片到左端的那一段丝' }),
+      rect(0.30, 0.02, 0.40, 0.14, '电流表', 'pokeRheoAmm', { note: '点它：接入越长 ⇒ 电阻越大 ⇒ 电流越小' }),
+      rect(0.04, 0.60, 0.92, 0.30, '滑片位置与电阻', 'pokeRheoR', { note: '点它：R(x) = ρ·L_总·x/S，与 x 成正比' })
     ],
     rholaw: [
       rect(0.04, 0.22, 0.50, 0.30, '导体（L 与 S）', 'pokeRod', { note: '点它：L 变长 ⇒ R 变大；S 变大 ⇒ R 变小' }),
@@ -2432,6 +2646,51 @@
     },
 
     {
+      act: 'a3', title: '把一根导线直接拉长、拉粗试试',
+      hint: '拖「长度」「横截面积」「材料」，看导线本身怎么变、三个因子怎么相乘',
+      note: '前面三屏是"分因素"看。这一屏把三个因素**放在同一根导线上**：' +
+            '导线可以拉长、可以变粗、可以换材料，右下的分解式实时给出三个因子。' +
+            '关系是 **R/R₀ = (L/L₀) · (ρ/ρ₀) ÷ (S/S₀)** —— ' +
+            '注意**面积因子在分母**：面积越大，电阻越小。' +
+            '把三个因子都调回 1，就回到基准电阻；只动一个，就退化成前面三条定律中的一条。',
+      formula: 'R / R₀ = (L/L₀) · (ρ/ρ₀) / (S/S₀)',
+      allow: {
+        wdL: { label: '导线长度 L', min: 0.2, max: 4, step: 0.1, unit: 'm' },
+        wdS: { label: '横截面积 S', min: 0.2, max: 10, step: 0.2, unit: 'mm²' },
+        wdMat: { label: '材料', min: 0, max: 7, step: 1 }
+      },
+      scene: 'wiredrag',
+      bullets: [
+        { text: '三个因素放在同一根导线上' },
+        { text: '面积因子在分母：S 大 ⇒ R 小' },
+        { text: '只动一个 ⇒ 退化成一条定律' }
+      ],
+      caption: '把三个因子乘起来，就是相对电阻',
+      captionEn: 'Three factors multiply',
+      init: function (S) { S.wdL = 1; S.wdS = 1; S.wdMat = 1; S.wdMat0 = 1; }
+    },
+    {
+      act: 'a3', title: '课标例 1：滑动变阻器的工作原理',
+      hint: '拖「滑片位置」，看接入长度与接入电阻一起变、电流表读数跟着变',
+      note: '课标 3.2.2 的例 1 明确要求"**知道滑动变阻器的工作原理**"。' +
+            '它的原理就是本节刚学的东西：**接入电路的是滑片到某一端的那一段电阻丝**，' +
+            '移动滑片就是改变**接入长度** —— 由 R ∝ L 可知，接入越长、电阻越大、电路中的电流越小。' +
+            '所以滑动变阻器能**连续**调节电流，靠的不是什么新规律，就是 R = ρL/S 里那个 L。',
+      formula: 'R(x) = ρ · L_总 · x / S   （x 为滑片位置，0 → 1）',
+      allow: {
+        rhX: { label: '滑片位置 x', min: 0, max: 1, step: 0.01 }
+      },
+      scene: 'rheostat',
+      bullets: [
+        { text: '接入的是滑片到某端的一段丝' },
+        { text: '移动滑片 = 改变接入长度' },
+        { text: '由 R ∝ L ⇒ 连续调节电流' }
+      ],
+      caption: '滑动变阻器：靠改变接入长度来连续改变电阻',
+      captionEn: 'The rheostat',
+      init: function (S) { S.rhX = 0.4; }
+    },
+    {
       act: 'a4', title: '把三条关系合成一条公式：R = ρL/S',
       hint: '拖「长度」「横截面积」「材料」，三个因素一起进公式',
       note: '同种材料的导体：R 与 L 成正比、与 S 成反比；导体电阻还与材料有关。' +
@@ -2728,6 +2987,7 @@
     lenB: 2, cvU2: 4,
     areaC: 2, cvU3: 4,
     matA: 1, matD: 7, cvU4: 4,
+    wdL: 1, wdS: 1, wdMat: 1, wdMat0: 1, rhX: 0.4,
 
     lawRho: 1, lawL: 1, lawS: 1,
     tblMat: 1, tblL: 100, tblS: 4,
@@ -2834,6 +3094,17 @@
     o.U_len = s.cvU2 * s.lenB / (1 + s.lenB + 3);
     o.areaC = s.areaC;
     o.U_area = s.cvU3 * (1 / s.areaC) / (1 + 1 / s.areaC + 1 / 3);
+
+    o.wdL = s.wdL; o.wdS = s.wdS; o.wdMat = s.wdMat; o.wdMat0 = s.wdMat0;
+    o.wdRho = P.RHO[P.RHO_ORDER[s.wdMat]];
+    o.wdRho0 = P.RHO[P.RHO_ORDER[s.wdMat0]];
+    o.wdR = P.resistanceFromRho(o.wdRho, s.wdL, s.wdS * S_MM2);
+    o.wdRel = P.relativeR(s.wdL, s.wdS, o.wdRho, 1, 1, o.wdRho0);
+
+    o.rhX = s.rhX;
+    o.rhLen = P.rheostatLength(0.50, s.rhX);
+    o.rhR = P.rheostatR(P.RHO['镍铬合金'], 0.50, 0.5e-6, s.rhX);
+
     o.matA = s.matA; o.matD = s.matD;
     o.rhoA = P.RHO[P.RHO_ORDER[s.matA]];
     o.rhoD = P.RHO[P.RHO_ORDER[s.matD]];
@@ -2954,6 +3225,8 @@
     lengthlaw: { key: 'lenB', from: 1, to: 4, dur: 8, step: 0.25 },
     arealaw: { key: 'areaC', from: 1, to: 4, dur: 8, step: 0.25 },
     materiallaw: { key: 'matD', from: 0, to: 7, dur: 9, step: 1 },
+    wiredrag: { key: 'wdS', from: 0.2, to: 10, dur: 9, step: 0.2 },
+    rheostat: { key: 'rhX', from: 0, to: 1, dur: 9, step: 0.01 },
     rholaw: { key: 'lawL', from: 0.2, to: 4, dur: 8, step: 0.1 },
     rhotable: { key: 'tblMat', from: 0, to: 7, dur: 9, step: 1 },
     temp: { key: 'heatT', from: 20, to: 2000, dur: 9, step: 10 },
@@ -3039,6 +3312,19 @@
         ['d 的材料', P.RHO_ORDER[x.matD]],
         ['ρ_d / ρ_a', P.fmt(x.ratio_mat, 2) + ' ×', '#F0AC5F'],
         ['结论', 'R 还跟材料有关']];
+      case 'wiredrag': return [
+        ['导线长度 L', P.fmt(x.wdL, 2) + ' m'],
+        ['横截面积 S', P.fmt(x.wdS, 1) + ' mm²'],
+        ['材料', P.RHO_ORDER[x.wdMat], '#F0AC5F'],
+        ['R = ρL/S', P.fmt(x.wdR, 4) + ' Ω', '#F0AC5F'],
+        ['R / R₀（相对基准）', P.fmt(x.wdRel, 3) + ' ×', '#F0AC5F'],
+        ['分解', P.fmt(x.wdL, 2) + ' × ' + P.fmt(1 / x.wdS, 2) + ' × ' + P.fmt(x.wdRho / x.wdRho0, 2)]];
+      case 'rheostat': return [
+        ['滑片位置 x', P.fmt(x.rhX, 2)],
+        ['接入长度 L = 0.50·x', P.fmt(x.rhLen, 3) + ' m'],
+        ['接入电阻 R = ρL/S', P.fmt(x.rhR, 2) + ' Ω', '#F0AC5F'],
+        ['最大电阻', P.fmt(P.rheostatR(P.RHO['镍铬合金'], 0.50, 0.5e-6, 1), 2) + ' Ω'],
+        ['判据', '接入越长 ⇒ R 越大']];
       case 'rholaw': return [
         ['材料 ρ', P.sci(x.rho_law, 2) + ' Ω·m'],
         ['长度 L', P.fmt(x.lawL, 2) + ' m'],
@@ -3206,8 +3492,11 @@
     var a = it.a, v = st[key], unit = a.unit ? ' ' + a.unit : '';
     switch (key) {
       case 'demoS': case 'lawS': case 'tblS': return P.fmt(v, 1) + ' mm²';
-      case 'lawRho': case 'matA': case 'matD': case 'tblMat': return P.RHO_ORDER[v];
+      case 'lawRho': case 'matA': case 'matD': case 'tblMat': case 'wdMat': return P.RHO_ORDER[v];
       case 'demoL': return P.fmt(v, 0) + ' m';
+      case 'wdL': return P.fmt(v, 2) + ' m';
+      case 'wdS': return P.fmt(v, 1) + ' mm²';
+      case 'rhX': return P.fmt(v, 2);
       case 'lawL': return P.fmt(v, 2) + ' m';
       case 'tblL': return P.fmt(v, 1) + ' m';
       case 'lenB': case 'areaC': case 'ex5k': return P.fmt(v, 2) + ' ×';
@@ -3423,6 +3712,50 @@
       draw();
     },
 
+    pokeRod2: function () {
+      CLICK.kind = 'poke';
+      CLICK.msg = '这一根导线上，三个因素**都能动**：拖长度它变长、拖面积它变粗、换材料它换色。' +
+                  '注意导线的**粗细**画的是直径（按 √S 缩放），因为屏幕上看到的是粗细、' +
+                  '而公式里用的是**横截面积**。';
+      draw();
+    },
+    pokeCross2: function () {
+      CLICK.kind = 'poke';
+      CLICK.msg = '横截面积 S 在公式的**分母**上：**S 越大 ⇒ R 越小**。' +
+                  '所以把导线做粗能减小电阻 —— 这正是本节开头"输电线做粗一点"的定量解释。';
+      draw();
+    },
+    pokeFactors: function () {
+      CLICK.kind = 'reveal';
+      CLICK.msg = '三个因子是**相乘**的关系：**R/R₀ = (L/L₀) · (ρ/ρ₀) ÷ (S/S₀)**。' +
+                  '这就是"控制变量法"的定量形式 —— ' +
+                  '把其中两个因子调回 1，剩下的那个因子单独变化，就退化成前面学的那三条定律。' +
+                  '做题时先用这条式子估相对值，再用 R = ρL/S 算绝对值。';
+      draw();
+    },
+
+    pokeRheoWire: function () {
+      CLICK.kind = 'poke';
+      CLICK.msg = '滑动变阻器的**电阻丝总长是固定的**，但接入电路的只有' +
+                  '**滑片到接线端的那一段**（画面里金色的那一段）。' +
+                  '所以移动滑片 = 改变接入长度 L —— 依据就是本节的 **R ∝ L**。';
+      draw();
+    },
+    pokeRheoAmm: function () {
+      CLICK.kind = 'poke';
+      CLICK.msg = '看电流表：**接入越长 ⇒ 接入电阻越大 ⇒ 电路电流越小**。' +
+                  '反过来，滑片往左移（接入变短）电流就变大。' +
+                  '因为长度是**连续**可变的，所以滑动变阻器能**连续**调节电流 —— ' +
+                  '这是它比"换不同电阻"更好用的地方。';
+      draw();
+    },
+    pokeRheoR: function () {
+      CLICK.kind = 'poke';
+      CLICK.msg = '把滑片位置记作 x（0 到 1），接入长度就是 L_总·x，' +
+                  '于是 **R(x) = ρ·L_总·x/S** —— 接入电阻与滑片位置**成正比**。' +
+                  '拖一拖滑片，右栏的 R 与 x 一起按比例变。';
+      draw();
+    },
     pokeRod: function () {
       CLICK.kind = 'poke';
       CLICK.msg = '同种材料：**R 与长度成正比、与横截面积成反比**。' +
