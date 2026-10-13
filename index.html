@@ -871,28 +871,46 @@
       { kind: 'pos', text: '正电荷' },
       { kind: 'neg', text: '负电荷（自由电子）' }
     ];
+    /* 窄屏：图例改纵向排列，避免横排互相压字/出画 */
+    var vert = (ctx.canvas.width / (global.devicePixelRatio || 1)) < 560 || items.length > 2;
     for (var i = 0; i < items.length; i++) {
-      var xx = x + i * gap;
-      charge(ctx, xx, y, r, items[i].kind, { glow: items[i].kind === 'neg' });
-      T(ctx, items[i].text, xx + r + 10 * k, y, { size: fs, color: K.text });
+      var xx = x, yy = vert ? y - (items.length - 1 - i) * (fs + 8 * k) : y;
+      if (!vert) xx = x + i * gap;
+      charge(ctx, xx, yy, r, items[i].kind, { glow: items[i].kind === 'neg' });
+      T(ctx, items[i].text, xx + r + 10 * k, yy, { size: fs, color: K.text });
     }
   }
 
-  /* ---------- 底部字幕：中文主句（English）混排 ---------- */
+  /* ---------- 底部字幕：中文主句（English）混排 ----------
+     宽度自适应：窄屏时按可用宽度自动降字号；仍放不下就丢掉英文小注，
+     保证中文主句完整落在画面内（验收第 6 条"不出画"）。 */
   function captionRES(ctx, W, H, cn, en, o) {
     o = o || {};
     var k = o.k || 1;
     var y = H - (o.bottom == null ? 54 : o.bottom) * k;
+    var pad = 12 * k, avail = W - pad * 2;
     ctx.save();
     ctx.textBaseline = 'middle';
     var size = (o.size || 28) * k;
-    var cnW = 0;
-    ctx.font = '400 ' + size + 'px ' + FONT;
-    cnW = ctx.measureText(cn).width;
     var enStr = en ? '（' + en + '）' : '';
+    var cnW, enW, scale;
+    /* 1) 先试原字号 */
+    ctx.font = '400 ' + size + 'px ' + FONT; cnW = ctx.measureText(cn).width;
     ctx.font = '400 ' + (size * 0.82) + 'px ' + SERIF;
-    var enW = enStr ? ctx.measureText(enStr).width : 0;
-    var x0 = W * 0.5 - (cnW + enW) / 2;
+    enW = enStr ? ctx.measureText(enStr).width : 0;
+    if (cnW + enW > avail) {
+      /* 2) 中文单独放得下 ⇒ 丢掉英文 */
+      if (cnW <= avail) { enStr = ''; enW = 0; }
+      else {
+        /* 3) 中文也放不下 ⇒ 整体等比缩小（下限 0.62） */
+        scale = Math.max(0.62, avail / cnW);
+        size = size * scale;
+        enStr = '';
+        enW = 0;
+        ctx.font = '400 ' + size + 'px ' + FONT; cnW = ctx.measureText(cn).width;
+      }
+    }
+    var x0 = Math.max(pad, W * 0.5 - (cnW + enW) / 2);
     ctx.font = '400 ' + size + 'px ' + FONT;
     ctx.fillStyle = o.color || K.text;
     ctx.textAlign = 'left';
