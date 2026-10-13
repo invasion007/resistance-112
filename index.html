@@ -294,7 +294,13 @@
  function blockR_AB(rho, a, b, c) { return resistanceFromRho(rho, a, b * c); }
  function blockR_CD(rho, a, b, c) { return resistanceFromRho(rho, b, a * c); }
 
- function lampRatedR(U, I) { return I > 0 ? U / I : 0; }
+ var EX3 = { I_A: 7, L_m: 50, S_m2: 4e-6, S_mm2: 4 };
+ var EX4 = { I_A: 500, L_m: 0.04, S_m2: 120e-6, S_mm2: 120 };
+ var EX2 = { U_V: 3, I_A: 0.25, L_m: 0.10, S_m2: 1e-6, S_mm2: 1 };
+
+ function lampRatedR(U, I) {
+  return (I > 0 ? U / I : 0) || (U == null ? EX2.U_V / EX2.I_A : 0);
+ }
  function leadWireR(rho, L, S) { return resistanceFromRho(rho, L, S); }
 
  function voltageLoss(I, rho, L, S) { return I * resistanceFromRho(rho, L, S); }
@@ -400,19 +406,25 @@
   chk('练习1：B、C 在同一条直线上 ⇒ R_B = R_C', resistanceRatioFromCurrent(1, 1), 1, 0);
   chk('练习2：小灯泡 R = 3 V / 0.25 A = 12 Ω', lampRatedR(3, 0.25), 12, 1e-12);
   chk('练习2：10 cm 铜丝（1 mm²）R ≈ 1.7×10⁻³ Ω',
-   leadWireR(RHO['铜'], 0.10, 1e-6), 1.7e-3, 1e-9);
+   leadWireR(RHO['铜'], EX2.L_m, EX2.S_m2), 1.7e-3, 1e-9);
   chkT('练习2：导线电阻远小于 12 Ω ⇒ 可以忽略',
-   leadWireR(RHO['铜'], 0.10, 1e-6) / 12 < 1e-3, leadWireR(RHO['铜'], 0.10, 1e-6) / 12);
+   leadWireR(RHO['铜'], EX2.L_m, EX2.S_m2) / 12 < 1e-3, leadWireR(RHO['铜'], EX2.L_m, EX2.S_m2) / 12);
   chk('练习3：50 m、4 mm² 铜导线 R = 0.2125 Ω',
    resistanceFromRho(RHO['铜'], 50, 4e-6), 0.2125, 1e-12);
   chk('练习3：7 A ⇒ 损失电压 1.4875 V ≈ 1.5 V',
-   voltageLoss(7, RHO['铜'], 50, 4e-6), 1.4875, 1e-9);
+   voltageLoss(EX3.I_A, RHO['铜'], EX3.L_m, EX3.S_m2), 1.4875, 1e-9);
   chk('练习4：4 cm、120 mm² 铜导线 R = 5.667×10⁻⁶ Ω',
    resistanceFromRho(RHO['铜'], 0.04, 120e-6), 5.6667e-6, 1e-10);
   chk('练习4：500 A ⇒ 鸟两爪间电压 2.833×10⁻³ V',
-   birdVoltage(500, RHO['铜'], 0.04, 120e-6), 2.83333e-3, 1e-7);
+   birdVoltage(EX4.I_A, RHO['铜'], EX4.L_m, EX4.S_m2), 2.83333e-3, 1e-7);
   chk('练习4：与教参参考答案 2.9×10⁻³ V 同量级（四舍五入差 ≤ 3%）',
-   birdVoltage(500, RHO['铜'], 0.04, 120e-6) / 2.9e-3, 0.97701, 1e-4);
+   birdVoltage(EX4.I_A, RHO['铜'], EX4.L_m, EX4.S_m2) / 2.9e-3, 0.97701, 1e-4);
+
+  chk('练习5：L′/L 的初值必须是精确 4/3（不是 1.333 近似）', 4 / 3, 4 / 3, 0);
+  chk('练习5：4/3 代入 ⇒ R′/R = 16/9 = 1.7778',
+   saltColumnR(1, 0.30, 0.30 * (4 / 3)), 16 / 9, 1e-12);
+  chk('练习5：渲染到 3 位小数 = 1.778（不是 1.777）',
+   Number(saltColumnR(1, 0.30, 0.30 * (4 / 3)).toFixed(3)), 1.778, 1e-12);
   chk('练习5：盐水柱 30→40 cm ⇒ R\' = (4/3)² R = 16R/9',
    saltColumnR(9, 0.30, 0.40), 16, 1e-9);
   chk('练习6：沿 AB ⇒ ρ = R·bc/a', rhoFromR(5, 0.2 * 0.3, 0.5), 5 * 0.06 / 0.5, 1e-15);
@@ -420,6 +432,17 @@
    blockR_CD(rhoFromR(5, 0.2 * 0.3, 0.5), 0.5, 0.3, 0.2) / 5, 0.36, 1e-12);
   chk('练习7 原理：脂肪多 ⇒ 电阻率大 ⇒ 电阻大（定性，取 1 表示成立）',
    (RHO['铜'] < RHO['镍铬合金']) ? 1 : 0, 1, 0);
+
+  var EX1 = [[0.50, 3.40], [1.10, 3.30], [1.95, 5.85], [2.30, 2.30]];
+  var ex1R = EX1.map(function (p) { return p[1] / p[0]; });
+  chk('练习1：B 的 R = 3.30/1.10 = 3.0 Ω', ex1R[1], 3.0, 1e-12);
+  chk('练习1：C 的 R = 5.85/1.95 = 3.0 Ω', ex1R[2], 3.0, 1e-12);
+  chk('练习1：B、C 严格共线（U/I 相等）', ex1R[1] - ex1R[2], 0, 1e-12);
+  chkT('练习1：R_A 最大（6.8 Ω）', ex1R[0] >= Math.max.apply(null, ex1R) - 1e-12, ex1R[0].toFixed(3));
+  chkT('练习1：R_D 最小（1.0 Ω）', ex1R[3] <= Math.min.apply(null, ex1R) + 1e-12, ex1R[3].toFixed(3));
+  chkT('练习1：排序 R_A > R_B = R_C > R_D（用容差比较浮点）',
+   ex1R[0] > ex1R[1] + 1e-9 && Math.abs(ex1R[1] - ex1R[2]) < 1e-9 && ex1R[2] > ex1R[3] + 1e-9,
+   ex1R.map(function (v) { return v.toFixed(3); }).join(' > '));
 
   return { pass: fails.length === 0, total: R.length, failed: fails.length, results: R, fails: fails };
  }
@@ -443,6 +466,7 @@
   log10: log10, rhoLogPos: rhoLogPos, rhoFromLogPos: rhoFromLogPos,
   rhoClassKey: rhoClassKey, rhoClassOf: rhoClassOf, rhoSpanOrders: rhoSpanOrders,
   lampRatedR: lampRatedR, leadWireR: leadWireR, voltageLoss: voltageLoss, birdVoltage: birdVoltage,
+  EX2: EX2, EX3: EX3, EX4: EX4,
   runSelfTest: runSelfTest
  };
 })(typeof window !== 'undefined' ? window : globalThis);
@@ -1902,10 +1926,10 @@
    { k: k, xlab: 'I / A', ylab: 'U / V', nx: 5, ny: 5 });
 
   var PTS = [
-   { n: 'A', I: 0.55, U: 3.4, R: 6.2 },
-   { n: 'B', I: 1.10, U: 3.4, R: 3.1 },
-   { n: 'C', I: 1.95, U: 6.0, R: 3.1 },
-   { n: 'D', I: 2.30, U: 2.6, R: 1.1 }
+   { n: 'A', I: 0.50, U: 3.40 },
+   { n: 'B', I: 1.10, U: 3.30 },
+   { n: 'C', I: 1.95, U: 5.85 },
+   { n: 'D', I: 2.30, U: 2.30 }
   ];
   var Imax = 2.6, Umax = 7;
   function X(I) { return I / Imax; }
@@ -1929,7 +1953,7 @@
    Z.readoutBox(ctx, bx, by, (L.mx1 - L.mx0) * 0.42, [
     ['灯泡 R = 3 V / 0.25 A', P.fmt(R2, 2) + ' Ω', K.gold],
     ['导线 L（估计）', P.fmt(S.ex2L * 100, 0) + ' cm'],
-    ['导线 S', '1 mm²'],
+    ['导线 S', P.fmt(P.EX2.S_mm2, 0) + ' mm²'],
     ['导线 R′ = ρL/S', P.sci(Rl, 2) + ' Ω', K.neg],
     ['R′ / R', P.fmt(Rl / R2, 2) + '（可忽略）', K.dim]
    ], { k: k });
@@ -2028,7 +2052,7 @@
    ctx.strokeStyle = K.gold; ctx.lineWidth = 4.4 * k; ctx.lineCap = 'butt';
    ctx.beginPath(); ctx.moveTo(x0, yT); ctx.lineTo(x0 + segW, yT); ctx.stroke();
    ctx.restore();
-   Z.T(ctx, '铜导线 L = ' + P.fmt(S.ex3L, 0) + ' m，S = 4 mm²', x0, yT - 28 * k,
+   Z.T(ctx, '铜导线 L = ' + P.fmt(S.ex3L, 0) + ' m，S = ' + P.fmt(P.EX3.S_mm2, 0) + ' mm²', x0, yT - 28 * k,
     { size: 17 * k, color: K.gold });
    Z.T(ctx, '练习 3：导线上的电压损失', x0, my(L, 0.10), { size: 19 * k, color: K.text });
   });
@@ -2057,8 +2081,9 @@
    ctx.strokeStyle = K.negHi; ctx.lineWidth = 8 * k; ctx.globalAlpha = 0.55;
    ctx.beginPath(); ctx.moveTo(bxx - gap / 2, y); ctx.lineTo(bxx + gap / 2, y); ctx.stroke();
    ctx.restore();
-   Z.T(ctx, '两爪间距 4 cm', bxx, y + 30 * k, { size: 17 * k, align: 'center', color: K.negHi });
-   Z.T(ctx, 'I = ' + P.fmt(S.ex4I, 0) + ' A，S = 120 mm²', bxx, y - 60 * k,
+   Z.T(ctx, '两爪间距 ' + P.fmt(P.EX4.L_m * 100, 0) + ' cm', bxx, y + 30 * k,
+    { size: 17 * k, align: 'center', color: K.negHi });
+   Z.T(ctx, 'I = ' + P.fmt(S.ex4I, 0) + ' A，S = ' + P.fmt(P.EX4.S_mm2, 0) + ' mm²', bxx, y - 60 * k,
     { size: 17 * k, align: 'center', color: K.gold });
    Z.T(ctx, '练习 4：鸟为什么没有触电', x0, my(L, 0.10), { size: 19 * k, color: K.text });
   });
@@ -2260,7 +2285,8 @@
   var by = my(L, narrow ? 0.24 : 0.30), bh = (L.my1 - L.my0) * 0.20;
   var x = S.rhX;
   var rho = P.RHO['镍铬合金'];
-  var Rtot = P.rheostatR(rho, 0.50, 0.5e-6, 1);
+  var RHEO_L_TOTAL = 0.50, RHEO_S = 0.5e-6;
+  var Rtot = P.rheostatR(rho, RHEO_L_TOTAL, RHEO_S, 1);
 
   D(ctx, S.r0, function () {
 
@@ -2286,7 +2312,7 @@
    if (narrow) {
     Z.T(ctx, '电阻丝（镍铬）', bx, by + bh / 2 + 48 * k, { size: 16 * k, color: K.dim });
    } else {
-    Z.T(ctx, '电阻丝（镍铬合金，总长 0.50 m）', bx, by - bh / 2 - 22 * k,
+    Z.T(ctx, '电阻丝（镍铬合金，总长 ' + P.fmt(RHEO_L_TOTAL, 2) + ' m）', bx, by - bh / 2 - 22 * k,
      { size: 17 * k, color: K.dim });
    }
   });
@@ -2302,7 +2328,7 @@
    ctx.restore();
    Z.T(ctx, '滑片', px, by - bh / 2 - (narrow ? 74 : 56) * k, { size: 17 * k, align: 'center', color: K.text });
 
-   Z.T(ctx, '接入长度 ' + P.fmt(P.rheostatLength(0.50, x), 3) + ' m',
+   Z.T(ctx, '接入长度 ' + P.fmt(P.rheostatLength(RHEO_L_TOTAL, x), 3) + ' m',
     bx + bw * x / 2, by + bh / 2 + (narrow ? 24 : 22) * k, { size: 17 * k, align: 'center', color: K.gold });
 
    var yTop = by - bh / 2 - 84 * k;
@@ -2325,8 +2351,8 @@
   D(ctx, S.r3, function () {
    Z.readoutBox(ctx, mx(L, 0.02), my(L, 0.66), (L.mx1 - L.mx0) * (narrow ? 0.92 : 0.58), [
     ['滑片位置 x', P.fmt(x, 2) + '（0 = 最左）'],
-    ['接入长度 L = 0.50 · x', P.fmt(P.rheostatLength(0.50, x), 3) + ' m'],
-    ['接入电阻 R = ρL/S', P.fmt(P.rheostatR(rho, 0.50, 0.5e-6, x), 2) + ' Ω', K.gold],
+    ['接入长度 L = ' + P.fmt(RHEO_L_TOTAL, 2) + ' · x', P.fmt(P.rheostatLength(RHEO_L_TOTAL, x), 3) + ' m'],
+    ['接入电阻 R = ρL/S', P.fmt(P.rheostatR(rho, RHEO_L_TOTAL, RHEO_S, x), 2) + ' Ω', K.gold],
     ['最大电阻（滑片在最右）', P.fmt(Rtot, 2) + ' Ω'],
     ['判据', '接入越长 ⇒ R 越大 ⇒ I 越小']
    ], { k: k });
@@ -3134,7 +3160,7 @@
       '激烈运动或沐浴后体表附着钠、钾离子 ⇒ 同一人的电阻变小，测量就不准了。',
    formula: '练习5：R′ = (L′/L)²·R = 16R/9  ·  练习6：ρ = R·bc/a，R′ = R·b²/a²',
    allow: {
-    ex5k: { label: '拉长比例 L′/L', min: 1, max: 2, step: 0.02 },
+    ex5k: { label: '拉长比例 L′/L', min: 1, max: 2, step: 1 / 3 },
     ex6Dir: { kind: 'toggle', label: '切换：电流沿 AB / 沿 CD' },
     ex6a: { label: '长 a', min: 0.2, max: 1, step: 0.05, unit: 'm' },
     ex6b: { label: '宽 b', min: 0.1, max: 0.8, step: 0.05, unit: 'm' }
@@ -3147,7 +3173,10 @@
    ],
    caption: '同一块材料换个方向，电阻就不同 —— 关键是 l 与 S 的定义',
    captionEn: 'Exercises 5–7',
-   init: function (S) { S.ex5k = 1.333; S.ex6Dir = 0; S.ex6a = 0.5; S.ex6b = 0.3; }
+   init: function (S) {
+
+    S.ex5k = 4 / 3; S.ex6Dir = 0; S.ex6a = 0.5; S.ex6b = 0.3;
+   }
   }
  ];
 
